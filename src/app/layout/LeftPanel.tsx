@@ -102,6 +102,7 @@ export function LeftPanel() {
   const duplicateClassificationLayer = useMapUiStore((state) => state.duplicateClassificationLayer);
   const deleteClassificationLayer = useMapUiStore((state) => state.deleteClassificationLayer);
   const setActiveClassificationLayer = useMapUiStore((state) => state.setActiveClassificationLayer);
+  const setVisibleClassificationLayer = useMapUiStore((state) => state.setVisibleClassificationLayer);
   const toggleClassificationLayerVisibility = useMapUiStore(
     (state) => state.toggleClassificationLayerVisibility,
   );
@@ -136,6 +137,7 @@ export function LeftPanel() {
 
     addClassificationLayer(nextLayer);
     setActiveClassificationLayer(nextLayer.id);
+    setVisibleClassificationLayer(nextLayer.id);
   };
 
   const updateRuleField = (
@@ -406,9 +408,20 @@ export function LeftPanel() {
                       type="button"
                       className="toolbar-button toolbar-button--ghost"
                       onClick={() => {
+                        setVisibleClassificationLayer(layer.id);
+                      }}
+                      disabled={isPrimaryVisible}
+                    >
+                      设为显示
+                    </button>
+                    <button
+                      type="button"
+                      className="toolbar-button toolbar-button--ghost"
+                      onClick={() => {
                         const duplicatedLayerId = duplicateClassificationLayer(layer.id);
                         if (duplicatedLayerId) {
                           setActiveClassificationLayer(duplicatedLayerId);
+                          setVisibleClassificationLayer(duplicatedLayerId);
                         }
                       }}
                     >

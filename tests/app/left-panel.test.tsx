@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { LeftPanel } from '@/app/layout/LeftPanel';
@@ -6,6 +6,26 @@ import { useFenceStore } from '@/features/fence/fenceStore';
 import { useGridStore } from '@/features/grid/gridStore';
 import { useMapUiStore } from '@/features/map/mapUiStore';
 import { useRasterStore } from '@/features/map/rasterStore';
+import type { RasterClassificationLayer } from '@/shared/types/raster';
+
+function createRuleLayer(
+  id: string,
+  label: string,
+  visible = true,
+): RasterClassificationLayer & { visible: boolean } {
+  return {
+    id,
+    label,
+    visible,
+    mode: 'rules',
+    noDataColor: '#00000000',
+    gradientStops: [],
+    rules: [
+      { min: -1, max: 0.3, color: '#cccccc', label: '低' },
+      { min: 0.3, max: null, color: '#226622', label: '高' },
+    ],
+  };
+}
 
 describe('LeftPanel', () => {
   afterEach(() => {
@@ -100,6 +120,19 @@ describe('LeftPanel', () => {
     expect(screen.getByRole('button', { name: '新建方案' })).toBeInTheDocument();
   });
 
+  it('makes a new custom scheme the current visible map scheme', () => {
+    render(<LeftPanel />);
+
+    act(() => {
+      screen.getByRole('button', { name: '新建方案' }).click();
+    });
+
+    const customScheme = screen.getByText('自定义方案 1').closest('article');
+
+    expect(customScheme).not.toBeNull();
+    expect(within(customScheme as HTMLElement).getByText('显示中')).toBeInTheDocument();
+  });
+
   it('shows the rules editor rows after activating a custom rules scheme', () => {
     act(() => {
       useMapUiStore.getState().addClassificationLayer({
@@ -126,5 +159,23 @@ describe('LeftPanel', () => {
     expect(screen.getByDisplayValue('自定义规则')).toBeInTheDocument();
     expect(screen.getByLabelText('规则最小值-0')).toBeInTheDocument();
     expect(screen.getByLabelText('规则颜色-0')).toBeInTheDocument();
+  });
+
+  it('allows switching the visible map scheme without toggling visibility off and on', () => {
+    act(() => {
+      useMapUiStore.getState().addClassificationLayer(createRuleLayer('scheme-a', '方案 A'));
+      useMapUiStore.getState().addClassificationLayer(createRuleLayer('scheme-b', '方案 B'));
+    });
+
+    render(<LeftPanel />);
+
+    const schemeA = screen.getByText('方案 A').closest('article');
+    expect(schemeA).not.toBeNull();
+
+    act(() => {
+      within(schemeA as HTMLElement).getByRole('button', { name: '设为显示' }).click();
+    });
+
+    expect(within(schemeA as HTMLElement).getByText('显示中')).toBeInTheDocument();
   });
 });
