@@ -93,6 +93,7 @@ export type RasterHoverInfo = {
     col: number;
   };
   sampleValues: number[] | null;
+  classificationLayerName?: string | null;
   classificationLabel?: string | null;
   classificationColor?: string | null;
   inValidityMask: boolean | null;

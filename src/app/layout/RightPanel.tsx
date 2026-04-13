@@ -169,6 +169,10 @@ export function RightPanel() {
               </dd>
             </div>
             <div className="metric-item">
+              <dt className="metric-label">分类方案</dt>
+              <dd>{hoverInfo.classificationLayerName ?? '--'}</dd>
+            </div>
+            <div className="metric-item">
               <dt className="metric-label">分级区间</dt>
               <dd>{hoverInfo.classificationLabel ?? '--'}</dd>
             </div>
@@ -190,17 +194,11 @@ export function RightPanel() {
               </dd>
             </div>
             <div className="metric-item">
-              <dt className="metric-label">有效区域</dt>
-              <dd>
-                {hoverInfo.inValidityMask === null ? '--' : hoverInfo.inValidityMask ? '是' : '否'}
-              </dd>
-            </div>
-            <div className="metric-item">
               <dt className="metric-label">围栏命中</dt>
               <dd>{hoverInfo.inFence ? '是' : '否'}</dd>
             </div>
             <div className="metric-item">
-              <dt className="metric-label">网格单元</dt>
+              <dt className="metric-label">网格命中</dt>
               <dd>{hoverInfo.gridCellId ?? '--'}</dd>
             </div>
           </dl>

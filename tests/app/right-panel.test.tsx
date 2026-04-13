@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { RightPanel } from '@/app/layout/RightPanel';
@@ -102,13 +102,14 @@ describe('RightPanel', () => {
     expect(screen.getByText('12.0% / 21.4%')).toBeInTheDocument();
   });
 
-  it('renders layer toggles and hover diagnostics', () => {
+  it('renders layer toggles and classification hover diagnostics', () => {
     act(() => {
       useMapUiStore.getState().toggleLayer('grid');
       useMapUiStore.getState().setHoverInfo({
         coordinate: [447976.08, 4041596.42],
         pixel: { row: 1590, col: 2823 },
         sampleValues: [128],
+        classificationLayerName: 'NDVI 默认',
         classificationLabel: '0.20 ~ 0.40',
         classificationColor: '#777777',
         inValidityMask: true,
@@ -125,8 +126,43 @@ describe('RightPanel', () => {
     expect(screen.getByText('447976.08, 4041596.42')).toBeInTheDocument();
     expect(screen.getByText('1590 / 2823')).toBeInTheDocument();
     expect(screen.getByText('128.00')).toBeInTheDocument();
+    expect(screen.getByText('NDVI 默认')).toBeInTheDocument();
     expect(screen.getByText('0.20 ~ 0.40')).toBeInTheDocument();
     expect(screen.getByLabelText('像元分级颜色')).toBeInTheDocument();
     expect(screen.getByText('r10-c20')).toBeInTheDocument();
+  });
+
+  it('shows placeholders when hover info has no visible classification layer', () => {
+    act(() => {
+      useMapUiStore.getState().setHoverInfo({
+        coordinate: [1, 2],
+        pixel: { row: 3, col: 4 },
+        sampleValues: [5],
+        classificationLayerName: null,
+        classificationLabel: null,
+        classificationColor: null,
+        inValidityMask: null,
+        inFence: false,
+        gridCellId: null,
+      });
+    });
+
+    render(<RightPanel />);
+
+    expect(screen.getByText('1.00, 2.00')).toBeInTheDocument();
+    expect(screen.getByText('3 / 4')).toBeInTheDocument();
+    expect(screen.getByText('5.00')).toBeInTheDocument();
+    expect(
+      within(screen.getByText('分类方案').closest('.metric-item') as HTMLElement).getByText('--'),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByText('分级区间').closest('.metric-item') as HTMLElement).getByText('--'),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByText('分级颜色').closest('.metric-item') as HTMLElement).getByText('--'),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByText('网格命中').closest('.metric-item') as HTMLElement).getByText('--'),
+    ).toBeInTheDocument();
   });
 });

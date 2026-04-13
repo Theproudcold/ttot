@@ -330,6 +330,7 @@ export function useMap(metadata: RasterMetadata | null) {
         coordinate,
         pixel: getPixelPosition(coordinate, currentMetadata),
         sampleValues,
+        classificationLayerName: visibleClassificationLayer?.label ?? null,
         classificationLabel: classificationMatch?.label ?? null,
         classificationColor: classificationMatch?.color ?? null,
         inValidityMask: currentValidityMask
