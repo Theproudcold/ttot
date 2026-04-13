@@ -20,12 +20,12 @@ import { ensureProjectionRegistered } from '@/shared/geo/crs';
 import { getFenceSummary, isCoordinateInValidityMask, isFenceInsideValidityMask, isPointInFence } from '@/shared/geo/fence';
 import { buildGridPreview } from '@/shared/geo/grid';
 import {
-  buildClassificationBreaks,
-  buildClassifiedPreviewRgba,
+  buildRasterClassificationPreviewRgba,
   createPreviewDataUrl,
-  findClassificationBreakForValue,
+  findRasterClassificationMatch,
 } from '@/shared/geo/raster';
 import type { RasterMetadata } from '@/shared/types/raster';
+import type { RasterClassificationLayer } from '@/shared/types/raster';
 import type { FenceRings } from '@/shared/types/fence';
 import type { GridCell } from '@/shared/types/grid';
 
@@ -121,6 +121,20 @@ function getPrimarySampleValue(sampleValues: number[] | null, noDataValue?: numb
   return primaryValue;
 }
 
+function getVisibleClassificationLayer(
+  classificationLayers: Array<RasterClassificationLayer & { visible: boolean }>,
+  visibleClassificationLayerId: string | null,
+): (RasterClassificationLayer & { visible: boolean }) | null {
+  if (visibleClassificationLayerId) {
+    const preferredLayer = classificationLayers.find((layer) => layer.id === visibleClassificationLayerId);
+    if (preferredLayer?.visible) {
+      return preferredLayer;
+    }
+  }
+
+  return classificationLayers.find((layer) => layer.visible) ?? null;
+}
+
 export function useMap(metadata: RasterMetadata | null) {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
@@ -136,7 +150,8 @@ export function useMap(metadata: RasterMetadata | null) {
   const preview = useRasterStore((state) => state.preview);
   const validityMask = useRasterStore((state) => state.validityMask);
   const layers = useMapUiStore((state) => state.layers);
-  const rasterRenderSettings = useMapUiStore((state) => state.rasterRenderSettings);
+  const classificationLayers = useMapUiStore((state) => state.classificationLayers);
+  const visibleClassificationLayerId = useMapUiStore((state) => state.visibleClassificationLayerId);
   const setHoverInfo = useMapUiStore((state) => state.setHoverInfo);
   const fence = useFenceStore((state) => state.fence);
   const fenceMode = useFenceStore((state) => state.mode);
@@ -150,7 +165,9 @@ export function useMap(metadata: RasterMetadata | null) {
   const validityMaskRef = useRef(validityMask);
   const fenceRef = useRef(fence);
   const gridCellsRef = useRef(gridCells);
-  const rasterRenderSettingsRef = useRef(rasterRenderSettings);
+  const visibleClassificationLayerRef = useRef(
+    getVisibleClassificationLayer(classificationLayers, visibleClassificationLayerId),
+  );
 
   useEffect(() => {
     metadataRef.current = metadata;
@@ -173,8 +190,11 @@ export function useMap(metadata: RasterMetadata | null) {
   }, [gridCells]);
 
   useEffect(() => {
-    rasterRenderSettingsRef.current = rasterRenderSettings;
-  }, [rasterRenderSettings]);
+    visibleClassificationLayerRef.current = getVisibleClassificationLayer(
+      classificationLayers,
+      visibleClassificationLayerId,
+    );
+  }, [classificationLayers, visibleClassificationLayerId]);
 
   function scheduleMapResize(map: Map, callback?: () => void) {
     scheduleMapResizeFrame(map, callback);
@@ -297,14 +317,12 @@ export function useMap(metadata: RasterMetadata | null) {
       const coordinate: [number, number] = [x, y];
       const sampleValues = getPreviewSampleValues(coordinate, currentMetadata, currentPreview);
       const primarySampleValue = getPrimarySampleValue(sampleValues, currentPreview.noDataValue);
-      const classificationBreak =
-        currentPreview.sampleBandCount === 1
-          ? findClassificationBreakForValue(
+      const visibleClassificationLayer = visibleClassificationLayerRef.current;
+      const classificationMatch =
+        currentPreview.sampleBandCount === 1 && visibleClassificationLayer
+          ? findRasterClassificationMatch(
               primarySampleValue ?? Number.NaN,
-              buildClassificationBreaks(
-                currentPreview.sampleRanges?.[0] ?? null,
-                rasterRenderSettingsRef.current,
-              ),
+              visibleClassificationLayer,
             )
           : null;
 
@@ -312,8 +330,8 @@ export function useMap(metadata: RasterMetadata | null) {
         coordinate,
         pixel: getPixelPosition(coordinate, currentMetadata),
         sampleValues,
-        classificationLabel: classificationBreak?.label ?? null,
-        classificationColor: classificationBreak?.color ?? null,
+        classificationLabel: classificationMatch?.label ?? null,
+        classificationColor: classificationMatch?.color ?? null,
         inValidityMask: currentValidityMask
           ? isCoordinateInValidityMask(coordinate, currentValidityMask)
           : null,
@@ -377,16 +395,20 @@ export function useMap(metadata: RasterMetadata | null) {
       currentView: buildMapViewDebugPayload(map.getView()),
     });
 
+    const visibleClassificationLayer = getVisibleClassificationLayer(
+      classificationLayers,
+      visibleClassificationLayerId,
+    );
     const styledPreviewUrl =
-      preview.sampleBandCount === 1 && preview.sampleData
+      preview.sampleBandCount === 1 && preview.sampleData && visibleClassificationLayer
         ? createPreviewDataUrl(
             preview.width,
             preview.height,
-            buildClassifiedPreviewRgba(
+            buildRasterClassificationPreviewRgba(
               preview.sampleData,
               preview.width,
               preview.height,
-              buildClassificationBreaks(preview.sampleRanges?.[0] ?? null, rasterRenderSettings),
+              visibleClassificationLayer,
               preview.noDataValue ?? null,
             ),
           )
@@ -471,7 +493,7 @@ export function useMap(metadata: RasterMetadata | null) {
       source.un('imageloadend', handleImageLoadEnd);
       source.un('imageloaderror', handleImageLoadError);
     };
-  }, [layers.raster, metadata, preview, rasterRenderSettings]);
+  }, [classificationLayers, layers.raster, metadata, preview, visibleClassificationLayerId]);
 
   useEffect(() => {
     fenceLayerRef.current?.setVisible(layers.fence);

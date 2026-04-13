@@ -15,6 +15,7 @@ import {
   buildClassificationBreaks,
   buildClassifiedPreviewRgba,
   buildDefaultNdviClassificationLayer,
+  buildRasterClassificationLegendData,
   buildRasterClassificationPreviewRgba,
   buildPreviewRgba,
   buildRasterMetadata,
@@ -490,5 +491,48 @@ describe('buildRasterClassificationPreviewRgba', () => {
         11, 61, 11, 255,
       ]),
     );
+  });
+});
+
+describe('buildRasterClassificationLegendData', () => {
+  it('builds compact gradient legend data for the default NDVI layer', () => {
+    const layer = buildDefaultNdviClassificationLayer();
+
+    expect(buildRasterClassificationLegendData(layer)).toMatchObject({
+      mode: 'gradient',
+      gradientCss: expect.stringContaining('linear-gradient'),
+      items: [
+        { color: '#8b1e3f', label: '低植被' },
+        { color: '#d7c98b', label: '裸地' },
+        { color: '#7fbf3f', label: '中等植被' },
+        { color: '#1f7a1f', label: '高植被' },
+        { color: '#0b3d0b', label: '极高植被' },
+      ],
+    });
+  });
+
+  it('builds discrete legend items for rules layers without a gradient css string', () => {
+    const layer = {
+      id: 'landcover-rules',
+      label: '土地覆盖',
+      mode: 'rules',
+      noDataColor: '#00000000',
+      gradientStops: [],
+      rules: [
+        { min: -1, max: 0.2, color: '#c2b280', label: '裸地' },
+        { min: 0.2, max: 0.6, color: '#7fbf3f', label: '中覆盖' },
+        { min: 0.6, max: null, color: '#1f7a1f', label: '高覆盖' },
+      ],
+    } satisfies RasterClassificationLayer;
+
+    expect(buildRasterClassificationLegendData(layer)).toEqual({
+      mode: 'rules',
+      gradientCss: null,
+      items: [
+        { color: '#c2b280', label: '裸地' },
+        { color: '#7fbf3f', label: '中覆盖' },
+        { color: '#1f7a1f', label: '高覆盖' },
+      ],
+    });
   });
 });

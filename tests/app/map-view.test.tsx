@@ -6,6 +6,23 @@ import { useFenceStore } from '@/features/fence/fenceStore';
 import { useMapUiStore } from '@/features/map/mapUiStore';
 import { useRasterStore } from '@/features/map/rasterStore';
 import { scheduleMapResizeFrame } from '@/features/map/useMap';
+import type { RasterClassificationLayer } from '@/shared/types/raster';
+
+function createRulesClassificationLayer(): RasterClassificationLayer & { visible: boolean } {
+  return {
+    id: 'landcover-rules',
+    label: '土地覆盖',
+    visible: true,
+    mode: 'rules',
+    noDataColor: '#00000000',
+    gradientStops: [],
+    rules: [
+      { min: -1, max: 0.2, color: '#c2b280', label: '裸地' },
+      { min: 0.2, max: 0.6, color: '#7fbf3f', label: '中覆盖' },
+      { min: 0.6, max: null, color: '#1f7a1f', label: '高覆盖' },
+    ],
+  };
+}
 
 describe('MapView', () => {
   afterEach(() => {
@@ -97,9 +114,56 @@ describe('MapView', () => {
 
     expect(screen.getByLabelText('hover-card')).toBeInTheDocument();
     expect(screen.getByLabelText('raster-legend')).toBeInTheDocument();
-    expect(screen.getByText('色带图例')).toBeInTheDocument();
-    expect(screen.getByText('0.00 ~ 0.20')).toBeInTheDocument();
+    expect(screen.getByText('NDVI 默认')).toBeInTheDocument();
+    expect(screen.getByLabelText('gradient-legend')).toBeInTheDocument();
     expect(screen.getByText('命中围栏：是')).toBeInTheDocument();
     expect(screen.getByText('命中网格：r10-c20')).toBeInTheDocument();
+  });
+
+  it('renders the default NDVI gradient legend with the visible scheme name', () => {
+    act(() => {
+      useRasterStore.getState().setPreview({
+        url: 'data:image/png;base64,preview',
+        width: 4,
+        height: 1,
+        sampleBandCount: 1,
+        sampleData: new Float32Array([-1, 0, 0.4, 0.7]),
+        sampleRanges: [{ min: -1, max: 0.7 }],
+        noDataValue: null,
+      });
+    });
+
+    render(<MapView />);
+
+    expect(screen.getByLabelText('raster-legend')).toBeInTheDocument();
+    expect(screen.getByText('NDVI 默认')).toBeInTheDocument();
+    expect(screen.getByLabelText('gradient-legend')).toBeInTheDocument();
+    expect(screen.getByText('低植被')).toBeInTheDocument();
+    expect(screen.getByText('极高植被')).toBeInTheDocument();
+  });
+
+  it('renders discrete legend items for the visible rules classification scheme', () => {
+    act(() => {
+      useRasterStore.getState().setPreview({
+        url: 'data:image/png;base64,preview',
+        width: 4,
+        height: 1,
+        sampleBandCount: 1,
+        sampleData: new Float32Array([-0.2, 0.3, 0.5, 0.8]),
+        sampleRanges: [{ min: -0.2, max: 0.8 }],
+        noDataValue: null,
+      });
+      useMapUiStore.getState().addClassificationLayer(createRulesClassificationLayer());
+      useMapUiStore.getState().setVisibleClassificationLayer('landcover-rules');
+    });
+
+    render(<MapView />);
+
+    expect(screen.getByLabelText('raster-legend')).toBeInTheDocument();
+    expect(screen.getByText('土地覆盖')).toBeInTheDocument();
+    expect(screen.queryByLabelText('gradient-legend')).not.toBeInTheDocument();
+    expect(screen.getByText('裸地')).toBeInTheDocument();
+    expect(screen.getByText('中覆盖')).toBeInTheDocument();
+    expect(screen.getByText('高覆盖')).toBeInTheDocument();
   });
 });

@@ -37,6 +37,17 @@ const DEFAULT_NDVI_GRADIENT_STOPS = [
   { value: 1, color: '#0b3d0b', label: '极高植被' },
 ] satisfies readonly [RasterGradientStop, ...RasterGradientStop[]];
 
+export type RasterClassificationLegendItem = {
+  color: string;
+  label: string;
+};
+
+export type RasterClassificationLegendData = {
+  mode: RasterClassificationLayer['mode'];
+  items: RasterClassificationLegendItem[];
+  gradientCss: string | null;
+};
+
 function waitForNextPaint(): Promise<void> {
   return new Promise((resolve) => {
     if (typeof requestAnimationFrame === 'function') {
@@ -250,6 +261,54 @@ function cloneGradientStops(
     { ...firstStop },
     ...restStops.map((stop) => ({ ...stop })),
   ];
+}
+
+function getGradientStopPercentages(
+  [firstStop, ...restStops]: readonly [RasterGradientStop, ...RasterGradientStop[]],
+): number[] {
+  const stops = [firstStop, ...restStops];
+  const minValue = stops[0].value;
+  const maxValue = stops[stops.length - 1].value;
+  const valueSpan = maxValue - minValue;
+
+  if (valueSpan <= 0) {
+    return stops.map((_, index) => {
+      if (stops.length === 1) {
+        return 100;
+      }
+
+      return (index / (stops.length - 1)) * 100;
+    });
+  }
+
+  return stops.map((stop) => ((stop.value - minValue) / valueSpan) * 100);
+}
+
+export function buildRasterClassificationLegendData(
+  layer: RasterClassificationLayer,
+): RasterClassificationLegendData {
+  if (layer.mode === 'rules') {
+    return {
+      mode: layer.mode,
+      items: layer.rules.map((rule) => ({
+        color: rule.color,
+        label: rule.label,
+      })),
+      gradientCss: null,
+    };
+  }
+
+  const percentages = getGradientStopPercentages(layer.gradientStops);
+  const stops = layer.gradientStops.map((stop, index) => `${stop.color} ${percentages[index].toFixed(2)}%`);
+
+  return {
+    mode: layer.mode,
+    items: layer.gradientStops.map((stop) => ({
+      color: stop.color,
+      label: stop.label,
+    })),
+    gradientCss: `linear-gradient(90deg, ${stops.join(', ')})`,
+  };
 }
 
 export function buildDefaultNdviClassificationLayer(): RasterClassificationLayer {
