@@ -137,6 +137,32 @@ describe('useMapUiStore', () => {
     expect(useMapUiStore.getState().visibleClassificationLayerId).toBe('ndvi-default');
   });
 
+  it('ignores addClassificationLayer calls with duplicate ids', () => {
+    act(() => {
+      useMapUiStore.getState().addClassificationLayer(createRuleLayer('scheme-a', '方案 A'));
+      useMapUiStore
+        .getState()
+        .addClassificationLayer(createGradientLayer('scheme-a', '重复方案 A', false));
+    });
+
+    const schemeALayers = useMapUiStore
+      .getState()
+      .classificationLayers.filter((layer) => layer.id === 'scheme-a');
+
+    expect(schemeALayers).toHaveLength(1);
+    expect(schemeALayers[0]).toEqual(
+      expect.objectContaining({
+        id: 'scheme-a',
+        label: '方案 A',
+        mode: 'rules',
+        visible: true,
+      }),
+    );
+    expect(useMapUiStore.getState().classificationLayers).toHaveLength(2);
+    expect(useMapUiStore.getState().activeClassificationLayerId).toBe('ndvi-default');
+    expect(useMapUiStore.getState().visibleClassificationLayerId).toBe('ndvi-default');
+  });
+
   it('adds updates duplicates and deletes classification layers while keeping active and visible ids valid', () => {
     act(() => {
       useMapUiStore.getState().addClassificationLayer(createRuleLayer('scheme-a', '方案 A'));

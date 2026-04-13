@@ -293,6 +293,10 @@ export const useMapUiStore = create<MapUiState>((set) => ({
     })),
   addClassificationLayer: (layer) =>
     set((state) => {
+      if (state.classificationLayers.some((existingLayer) => existingLayer.id === layer.id)) {
+        return state;
+      }
+
       const classificationLayers = [...state.classificationLayers, cloneClassificationLayer(layer)];
 
       return {
