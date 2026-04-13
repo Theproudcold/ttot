@@ -1,8 +1,8 @@
 export function StatusBar() {
   return (
     <footer className="status-bar">
-      <span className="status-pill">初始化骨架已挂好</span>
-      <span>下一步：GeoTIFF 元信息读取、地图实例、围栏与网格预览。</span>
+      <span className="status-pill">轻量预览工具</span>
+      <span>当前重点：GeoTIFF 读取进度、围栏编辑、实时网格预览与导出。</span>
     </footer>
   );
 }
