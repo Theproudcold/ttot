@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { LeftPanel } from '@/app/layout/LeftPanel';
 import { useFenceStore } from '@/features/fence/fenceStore';
 import { useGridStore } from '@/features/grid/gridStore';
+import { useMapUiStore } from '@/features/map/mapUiStore';
 import { useRasterStore } from '@/features/map/rasterStore';
 
 describe('LeftPanel', () => {
@@ -12,6 +13,7 @@ describe('LeftPanel', () => {
       useRasterStore.getState().reset();
       useFenceStore.getState().reset();
       useGridStore.getState().reset();
+      useMapUiStore.getState().reset();
     });
   });
 
@@ -91,11 +93,38 @@ describe('LeftPanel', () => {
     expect(screen.getByDisplayValue('10')).toBeInTheDocument();
   });
 
-  it('renders raster classification controls with a default step of 0.2', () => {
+  it('renders the default NDVI classification scheme and create action', () => {
     render(<LeftPanel />);
 
-    expect(screen.getByLabelText('渲染最小值')).toBeInTheDocument();
-    expect(screen.getByLabelText('渲染最大值')).toBeInTheDocument();
-    expect(screen.getByLabelText('分级步长')).toHaveDisplayValue('0.2');
+    expect(screen.getByText('NDVI 默认')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '新建方案' })).toBeInTheDocument();
+  });
+
+  it('shows the rules editor rows after activating a custom rules scheme', () => {
+    act(() => {
+      useMapUiStore.getState().addClassificationLayer({
+        id: 'custom-rules',
+        label: '自定义规则',
+        mode: 'rules',
+        noDataColor: '#00000000',
+        gradientStops: [],
+        rules: [
+          {
+            min: -1,
+            max: 0,
+            color: '#cccccc',
+            label: '低值',
+          },
+        ],
+        visible: true,
+      });
+      useMapUiStore.getState().setActiveClassificationLayer('custom-rules');
+    });
+
+    render(<LeftPanel />);
+
+    expect(screen.getByDisplayValue('自定义规则')).toBeInTheDocument();
+    expect(screen.getByLabelText('规则最小值-0')).toBeInTheDocument();
+    expect(screen.getByLabelText('规则颜色-0')).toBeInTheDocument();
   });
 });
