@@ -26,6 +26,49 @@ export type RasterClassificationBreak = {
   label: string;
 };
 
+export type RasterClassificationMode = 'gradient' | 'rules';
+
+export type RasterGradientStop = {
+  value: number;
+  color: string;
+  label: string;
+};
+
+export type RasterClassificationRule = {
+  min: number;
+  max: number | null;
+  color: string;
+  label: string;
+};
+
+type RasterClassificationLayerBase = {
+  id: string;
+  label: string;
+  noDataColor: string;
+};
+
+export type RasterGradientClassificationLayer = RasterClassificationLayerBase & {
+  mode: 'gradient';
+  gradientStops: [RasterGradientStop, ...RasterGradientStop[]];
+  rules: [];
+};
+
+export type RasterRuleClassificationLayer = RasterClassificationLayerBase & {
+  mode: 'rules';
+  gradientStops: [];
+  rules: [RasterClassificationRule, ...RasterClassificationRule[]];
+};
+
+export type RasterClassificationLayer =
+  | RasterGradientClassificationLayer
+  | RasterRuleClassificationLayer;
+
+export type RasterLayerMatchResult = {
+  color: string;
+  label: string;
+  matchedRule: RasterClassificationRule | null;
+};
+
 export type RasterValidityMask = {
   width: number;
   height: number;

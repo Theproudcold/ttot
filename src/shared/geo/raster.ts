@@ -2,8 +2,12 @@ import { fromArrayBuffer } from 'geotiff';
 
 import { isLikelyProjectedCrs } from '@/shared/geo/crs';
 import type {
+  RasterClassificationLayer,
   RasterClassificationBreak,
+  RasterClassificationRule,
+  RasterGradientStop,
   RasterGeoKeys,
+  RasterLayerMatchResult,
   RasterMetadata,
   RasterPreview,
   RasterRenderSettings,
@@ -25,6 +29,13 @@ const DEFAULT_CLASSIFICATION_COLORS = [
   '#474743',
   '#171717',
 ];
+const DEFAULT_NDVI_GRADIENT_STOPS = [
+  { value: -1, color: '#8b1e3f', label: '低植被' },
+  { value: 0, color: '#d7c98b', label: '裸地' },
+  { value: 0.4, color: '#7fbf3f', label: '中等植被' },
+  { value: 0.7, color: '#1f7a1f', label: '高植被' },
+  { value: 1, color: '#0b3d0b', label: '极高植被' },
+] satisfies readonly [RasterGradientStop, ...RasterGradientStop[]];
 
 function waitForNextPaint(): Promise<void> {
   return new Promise((resolve) => {
@@ -170,6 +181,161 @@ function hexToRgb(color: string): [number, number, number] {
     Number.parseInt(hex.slice(2, 4), 16),
     Number.parseInt(hex.slice(4, 6), 16),
   ];
+}
+
+function hexToRgba(color: string): [number, number, number, number] {
+  const normalized = color.trim().replace('#', '');
+
+  if (normalized.length === 4) {
+    const [red, green, blue, alpha] = normalized.split('');
+    return [
+      Number.parseInt(`${red}${red}`, 16),
+      Number.parseInt(`${green}${green}`, 16),
+      Number.parseInt(`${blue}${blue}`, 16),
+      Number.parseInt(`${alpha}${alpha}`, 16),
+    ];
+  }
+
+  if (normalized.length === 8) {
+    return [
+      Number.parseInt(normalized.slice(0, 2), 16),
+      Number.parseInt(normalized.slice(2, 4), 16),
+      Number.parseInt(normalized.slice(4, 6), 16),
+      Number.parseInt(normalized.slice(6, 8), 16),
+    ];
+  }
+
+  const [red, green, blue] = hexToRgb(color);
+  return [red, green, blue, 255];
+}
+
+function rgbToHex(red: number, green: number, blue: number): string {
+  const toHex = (value: number) => Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0');
+  return `#${toHex(red)}${toHex(green)}${toHex(blue)}`;
+}
+
+function interpolateHexColors(startColor: string, endColor: string, ratio: number): string {
+  const [startRed, startGreen, startBlue] = hexToRgb(startColor);
+  const [endRed, endGreen, endBlue] = hexToRgb(endColor);
+  const clampedRatio = Math.max(0, Math.min(1, ratio));
+
+  return rgbToHex(
+    startRed + (endRed - startRed) * clampedRatio,
+    startGreen + (endGreen - startGreen) * clampedRatio,
+    startBlue + (endBlue - startBlue) * clampedRatio,
+  );
+}
+
+function findMatchingClassificationRule(
+  value: number,
+  rules: RasterClassificationRule[],
+): RasterClassificationRule | null {
+  for (const rule of rules) {
+    if (value < rule.min) {
+      continue;
+    }
+
+    if (rule.max === null || value < rule.max) {
+      return rule;
+    }
+  }
+
+  return null;
+}
+
+function cloneGradientStops(
+  [firstStop, ...restStops]: readonly [RasterGradientStop, ...RasterGradientStop[]],
+): [RasterGradientStop, ...RasterGradientStop[]] {
+  return [
+    { ...firstStop },
+    ...restStops.map((stop) => ({ ...stop })),
+  ];
+}
+
+export function buildDefaultNdviClassificationLayer(): RasterClassificationLayer {
+  return {
+    id: 'ndvi-default',
+    label: 'NDVI 默认分级',
+    mode: 'gradient',
+    noDataColor: '#00000000',
+    gradientStops: cloneGradientStops(DEFAULT_NDVI_GRADIENT_STOPS),
+    rules: [],
+  };
+}
+
+export function findRasterClassificationMatch(
+  value: number,
+  layer: RasterClassificationLayer,
+): RasterLayerMatchResult | null {
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+
+  if (layer.mode === 'rules') {
+    const matchedRule = findMatchingClassificationRule(value, layer.rules);
+    if (!matchedRule) {
+      return null;
+    }
+
+    return {
+      color: matchedRule.color,
+      label: matchedRule.label,
+      matchedRule,
+    };
+  }
+
+  const stops = layer.gradientStops;
+  if (stops.length === 0) {
+    return null;
+  }
+
+  const exactStop = stops.find((stop) => value === stop.value);
+  if (exactStop) {
+    return {
+      color: exactStop.color,
+      label: exactStop.label,
+      matchedRule: null,
+    };
+  }
+
+  if (value <= stops[0].value) {
+    return {
+      color: stops[0].color,
+      label: stops[0].label,
+      matchedRule: null,
+    };
+  }
+
+  const lastStop = stops[stops.length - 1];
+  if (value >= lastStop.value) {
+    return {
+      color: lastStop.color,
+      label: lastStop.label,
+      matchedRule: null,
+    };
+  }
+
+  for (let index = 0; index < stops.length - 1; index += 1) {
+    const currentStop = stops[index];
+    const nextStop = stops[index + 1];
+
+    if (value < currentStop.value || value > nextStop.value) {
+      continue;
+    }
+
+    const ratio = (value - currentStop.value) / (nextStop.value - currentStop.value);
+    return {
+      color: interpolateHexColors(currentStop.color, nextStop.color, ratio),
+      label: `${currentStop.label} ~ ${nextStop.label}`,
+      matchedRule: null,
+    };
+  }
+
+  return {
+    color: lastStop.color,
+    label: lastStop.label,
+    matchedRule: null,
+  };
 }
 
 export function getSampleRanges(
@@ -366,6 +532,45 @@ export function buildClassifiedPreviewRgba(
     }
 
     const [red, green, blue] = hexToRgb(matchedBreak.color);
+    rgba[rgbaOffset] = red;
+    rgba[rgbaOffset + 1] = green;
+    rgba[rgbaOffset + 2] = blue;
+    rgba[rgbaOffset + 3] = 255;
+  }
+
+  return rgba;
+}
+
+export function buildRasterClassificationPreviewRgba(
+  samples: ArrayLike<number>,
+  width: number,
+  height: number,
+  layer: RasterClassificationLayer,
+  noDataValue: number | null,
+): Uint8ClampedArray {
+  const pixelCount = width * height;
+  const rgba = new Uint8ClampedArray(pixelCount * 4);
+
+  for (let pixelIndex = 0; pixelIndex < pixelCount; pixelIndex += 1) {
+    const value = samples[pixelIndex] ?? Number.NaN;
+    const rgbaOffset = pixelIndex * 4;
+
+    if (!isValidRasterSample(value, noDataValue)) {
+      const [red, green, blue, alpha] = hexToRgba(layer.noDataColor);
+      rgba[rgbaOffset] = red;
+      rgba[rgbaOffset + 1] = green;
+      rgba[rgbaOffset + 2] = blue;
+      rgba[rgbaOffset + 3] = alpha;
+      continue;
+    }
+
+    const match = findRasterClassificationMatch(value, layer);
+    if (!match) {
+      rgba[rgbaOffset + 3] = 0;
+      continue;
+    }
+
+    const [red, green, blue] = hexToRgb(match.color);
     rgba[rgbaOffset] = red;
     rgba[rgbaOffset + 1] = green;
     rgba[rgbaOffset + 2] = blue;

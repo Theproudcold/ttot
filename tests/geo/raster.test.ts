@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { RasterClassificationLayer } from '@/shared/types/raster';
 
 const { fromArrayBufferMock, fromBlobMock } = vi.hoisted(() => ({
   fromArrayBufferMock: vi.fn(),
@@ -13,10 +14,13 @@ vi.mock('geotiff', () => ({
 import {
   buildClassificationBreaks,
   buildClassifiedPreviewRgba,
+  buildDefaultNdviClassificationLayer,
+  buildRasterClassificationPreviewRgba,
   buildPreviewRgba,
   buildRasterMetadata,
   calculatePreviewDimensions,
   calculateProgressPercent,
+  findRasterClassificationMatch,
   findClassificationBreakForValue,
   getCrsCodeFromGeoKeys,
   getSampleRanges,
@@ -373,6 +377,117 @@ describe('buildClassifiedPreviewRgba', () => {
         238, 238, 238, 255,
         17, 17, 17, 255,
         17, 17, 17, 255,
+      ]),
+    );
+  });
+});
+
+describe('buildDefaultNdviClassificationLayer', () => {
+  it('builds a default NDVI gradient layer with expected stops', () => {
+    expect(buildDefaultNdviClassificationLayer()).toEqual({
+      id: 'ndvi-default',
+      label: 'NDVI 默认分级',
+      mode: 'gradient',
+      noDataColor: '#00000000',
+      gradientStops: [
+        { value: -1, color: '#8b1e3f', label: '低植被' },
+        { value: 0, color: '#d7c98b', label: '裸地' },
+        { value: 0.4, color: '#7fbf3f', label: '中等植被' },
+        { value: 0.7, color: '#1f7a1f', label: '高植被' },
+        { value: 1, color: '#0b3d0b', label: '极高植被' },
+      ],
+      rules: [],
+    });
+  });
+});
+
+describe('findRasterClassificationMatch', () => {
+  it('interpolates colors for gradient mode and clamps values beyond the stop range', () => {
+    const layer = buildDefaultNdviClassificationLayer();
+
+    expect(findRasterClassificationMatch(-2, layer)).toMatchObject({
+      color: '#8b1e3f',
+      label: '低植被',
+      matchedRule: null,
+    });
+    expect(findRasterClassificationMatch(0.2, layer)).toMatchObject({
+      color: '#abc465',
+      label: '裸地 ~ 中等植被',
+      matchedRule: null,
+    });
+    expect(findRasterClassificationMatch(2, layer)).toMatchObject({
+      color: '#0b3d0b',
+      label: '极高植被',
+      matchedRule: null,
+    });
+  });
+
+  it('returns the exact stop label when value lands exactly on an intermediate gradient stop', () => {
+    const layer = buildDefaultNdviClassificationLayer();
+
+    expect(findRasterClassificationMatch(0.4, layer)).toMatchObject({
+      color: '#7fbf3f',
+      label: '中等植被',
+      matchedRule: null,
+    });
+    expect(findRasterClassificationMatch(0.7, layer)).toMatchObject({
+      color: '#1f7a1f',
+      label: '高植被',
+      matchedRule: null,
+    });
+  });
+
+  it('matches discrete rules including open-ended max=null intervals', () => {
+    const layer = {
+      id: 'ndvi-rules',
+      label: 'NDVI 离散规则',
+      mode: 'rules',
+      noDataColor: '#00000000',
+      gradientStops: [],
+      rules: [
+        { min: -1, max: 0, color: '#cccccc', label: '< 0' },
+        { min: 0, max: 0.7, color: '#88cc44', label: '0.0 - 0.7' },
+        { min: 0.7, max: null, color: '#226622', label: '0.7+' },
+      ],
+    } satisfies RasterClassificationLayer;
+
+    expect(findRasterClassificationMatch(0.69, layer)).toMatchObject({
+      color: '#88cc44',
+      label: '0.0 - 0.7',
+      matchedRule: {
+        min: 0,
+        max: 0.7,
+        color: '#88cc44',
+        label: '0.0 - 0.7',
+      },
+    });
+    expect(findRasterClassificationMatch(0.7, layer)).toMatchObject({
+      color: '#226622',
+      label: '0.7+',
+      matchedRule: {
+        min: 0.7,
+        max: null,
+        color: '#226622',
+        label: '0.7+',
+      },
+    });
+    expect(findRasterClassificationMatch(1.2, layer)).toMatchObject({
+      color: '#226622',
+      label: '0.7+',
+    });
+  });
+});
+
+describe('buildRasterClassificationPreviewRgba', () => {
+  it('renders preview rgba with gradient matches and transparent nodata pixels', () => {
+    const layer = buildDefaultNdviClassificationLayer();
+
+    expect(buildRasterClassificationPreviewRgba([0, 0.2, 0.7, 1], 2, 2, layer, 0)).toEqual(
+      new Uint8ClampedArray([
+        0, 0, 0, 0,
+        171, 196, 101, 255,
+        31, 122, 31, 255,
+        11, 61, 11, 255,
       ]),
     );
   });
