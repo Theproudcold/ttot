@@ -1,17 +1,32 @@
 import { useRasterStore } from '@/features/map/rasterStore';
 import { useFenceStore } from '@/features/fence/fenceStore';
 import { useMapUiStore } from '@/features/map/mapUiStore';
-import { buildClassificationBreaks } from '@/shared/geo/raster';
+import { buildRasterClassificationLegendData } from '@/shared/geo/raster';
 
 import { useMap } from './useMap';
 import { useRasterLoader } from './useRasterLoader';
+
+function getVisibleClassificationLayer(
+  classificationLayers: ReturnType<typeof useMapUiStore.getState>['classificationLayers'],
+  visibleClassificationLayerId: string | null,
+) {
+  if (visibleClassificationLayerId) {
+    const preferredLayer = classificationLayers.find((layer) => layer.id === visibleClassificationLayerId);
+    if (preferredLayer?.visible) {
+      return preferredLayer;
+    }
+  }
+
+  return classificationLayers.find((layer) => layer.visible) ?? null;
+}
 
 export function MapView() {
   useRasterLoader();
 
   const metadata = useRasterStore((state) => state.metadata);
   const hoverInfo = useMapUiStore((state) => state.hoverInfo);
-  const rasterRenderSettings = useMapUiStore((state) => state.rasterRenderSettings);
+  const classificationLayers = useMapUiStore((state) => state.classificationLayers);
+  const visibleClassificationLayerId = useMapUiStore((state) => state.visibleClassificationLayerId);
   const previewStatus = useRasterStore((state) => state.previewStatus);
   const status = useRasterStore((state) => state.status);
   const error = useRasterStore((state) => state.error);
@@ -20,10 +35,20 @@ export function MapView() {
   const preview = useRasterStore((state) => state.preview);
   const fence = useFenceStore((state) => state.fence);
   const { mapElementRef, fitToRaster, fitToFence } = useMap(metadata);
-  const classificationBreaks = buildClassificationBreaks(
-    preview?.sampleBandCount === 1 ? (preview.sampleRanges?.[0] ?? null) : null,
-    rasterRenderSettings,
+  const visibleClassificationLayer = getVisibleClassificationLayer(
+    classificationLayers,
+    visibleClassificationLayerId,
   );
+  const legendData =
+    preview?.sampleBandCount === 1 && visibleClassificationLayer
+      ? buildRasterClassificationLegendData(visibleClassificationLayer)
+      : null;
+  const gradientLegendStartLabel =
+    legendData?.mode === 'gradient' ? (legendData.items[0]?.label ?? null) : null;
+  const gradientLegendEndLabel =
+    legendData?.mode === 'gradient'
+      ? (legendData.items[legendData.items.length - 1]?.label ?? null)
+      : null;
 
   return (
     <main className="map-panel" aria-label="map-panel">
@@ -84,17 +109,44 @@ export function MapView() {
             <div>{`命中网格：${hoverInfo.gridCellId ?? '--'}`}</div>
           </div>
         ) : null}
-        {classificationBreaks.length > 0 ? (
+        {legendData && visibleClassificationLayer ? (
           <div className="legend-card" aria-label="raster-legend">
-            <div className="legend-card__title">色带图例</div>
-            <div className="legend-list">
-              {classificationBreaks.map((item) => (
-                <div key={item.label} className="legend-item">
-                  <span className="color-chip" style={{ backgroundColor: item.color }} />
-                  <span>{item.label}</span>
+            <div className="legend-card__title">{visibleClassificationLayer.label}</div>
+            {legendData.mode === 'gradient' && legendData.gradientCss ? (
+              <>
+                <div
+                  aria-label="gradient-legend"
+                  style={{
+                    height: '14px',
+                    borderRadius: '999px',
+                    border: '1px solid rgba(0, 0, 0, 0.08)',
+                    background: legendData.gradientCss,
+                  }}
+                />
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: '12px',
+                    fontSize: '12px',
+                    color: '#4a4a4a',
+                  }}
+                >
+                  <span>{gradientLegendStartLabel}</span>
+                  <span>{gradientLegendEndLabel}</span>
                 </div>
-              ))}
-            </div>
+              </>
+            ) : null}
+            {legendData.mode === 'rules' ? (
+              <div className="legend-list">
+                {legendData.items.map((item) => (
+                  <div key={item.label} className="legend-item">
+                    <span className="color-chip" style={{ backgroundColor: item.color }} />
+                    <span>{item.label}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
