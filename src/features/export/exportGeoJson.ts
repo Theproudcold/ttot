@@ -32,27 +32,51 @@ export function createFenceGeoJson(fence: FenceFeature): GeoJsonFeatureCollectio
   };
 }
 
+import type { RasterClassificationLayer, RasterRuleClassificationLayer } from '@/shared/types/raster';
+
 export function createGridGeoJson(
   cells: GridCell[],
   summary: GridSummary,
+  activeLayer?: RasterClassificationLayer | null,
 ): GeoJsonFeatureCollection {
+  const isRulesMode = activeLayer?.mode === 'rules';
+  const rules = isRulesMode ? (activeLayer as RasterRuleClassificationLayer).rules : [];
+
   return {
     type: 'FeatureCollection',
-    features: cells.map((cell) => ({
-      type: 'Feature',
-      geometry: {
-        type: 'Polygon',
-        coordinates: cell.polygon,
-      },
-      properties: {
+    features: cells.map((cell) => {
+      const properties: Record<string, unknown> = {
         id: cell.id,
         row: cell.row,
         col: cell.col,
         centerX: cell.center[0],
         centerY: cell.center[1],
         cellSize: summary.cellSize,
-      },
-    })),
+      };
+
+      if (cell.aggregation?.meanValue != null) {
+        properties.meanValue = cell.aggregation.meanValue;
+        if (rules.length > 0) {
+           for (const rule of rules) {
+             if (cell.aggregation.meanValue >= rule.min && (rule.max == null || cell.aggregation.meanValue <= rule.max)) {
+                if (rule.applicationRate != null) {
+                  properties.fertilizerAmount = rule.applicationRate;
+                }
+                break;
+             }
+           }
+        }
+      }
+
+      return {
+        type: 'Feature',
+        geometry: {
+          type: 'Polygon',
+          coordinates: cell.polygon,
+        },
+        properties,
+      };
+    }),
   };
 }
 

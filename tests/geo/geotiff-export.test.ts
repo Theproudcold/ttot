@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createMetricTransform } from '@/shared/geo/crs';
 import {
   applyGridAggregationToFenceWindowBands,
   applyGridNoDataMask,
@@ -122,7 +123,8 @@ describe('buildGridAggregationFromFenceWindow', () => {
           [0, 0],
         ],
       ],
-      gridCellSize: 2,
+      gridCellWidth: 2,
+      gridCellHeight: 2,
       sourceNoDataValue: null,
     });
 
@@ -133,6 +135,38 @@ describe('buildGridAggregationFromFenceWindow', () => {
       meanValue: 4,
       outputValue: 4,
     });
+  });
+
+  it('aggregates geographic raster windows by metric cell size when metricTransform is provided', () => {
+    const metricTransform = createMetricTransform({
+      crsCode: 'EPSG:4326',
+      boundingBox: [119.420001, 36.510001, 119.420901, 36.510601],
+    });
+
+    const aggregation = buildGridAggregationFromFenceWindow({
+      bands: [new Float32Array([1, 3, 5, 7])],
+      window: [0, 0, 2, 2],
+      width: 2,
+      height: 2,
+      origin: [119.420001, 36.510601, 0],
+      resolution: [0.00045, -0.0003, 0],
+      fenceRings: [
+        [
+          [119.420001, 36.510001],
+          [119.420901, 36.510001],
+          [119.420901, 36.510601],
+          [119.420001, 36.510601],
+          [119.420001, 36.510001],
+        ],
+      ],
+      metricTransform,
+      gridCellWidth: 10,
+      gridCellHeight: 10,
+      sourceNoDataValue: null,
+    });
+
+    expect(Object.keys(aggregation.cellsById)).toHaveLength(4);
+    expect(Object.values(aggregation.cellsById).map((cell) => cell.meanValue)).toEqual([1, 3, 5, 7]);
   });
 });
 
@@ -154,13 +188,47 @@ describe('applyGridAggregationToFenceWindowBands', () => {
           [0, 0],
         ],
       ],
-      gridCellSize: 2,
+      gridCellWidth: 2,
+      gridCellHeight: 2,
       sourceNoDataValue: null,
       noDataValue: -9999,
     });
 
     expect(Array.from(result.bands[0])).toEqual([4, 4, 4, 4]);
     expect(result.aggregation.cellsById['r0-c0']?.meanValue).toBe(4);
+    expect(result.maskedPixelCount).toBe(0);
+  });
+
+  it('keeps geographic pixels in separate metric cells instead of collapsing them during rewrite', () => {
+    const metricTransform = createMetricTransform({
+      crsCode: 'EPSG:4326',
+      boundingBox: [119.420001, 36.510001, 119.420901, 36.510601],
+    });
+
+    const result = applyGridAggregationToFenceWindowBands({
+      bands: [new Float32Array([1, 3, 5, 7])],
+      window: [0, 0, 2, 2],
+      width: 2,
+      height: 2,
+      origin: [119.420001, 36.510601, 0],
+      resolution: [0.00045, -0.0003, 0],
+      fenceRings: [
+        [
+          [119.420001, 36.510001],
+          [119.420901, 36.510001],
+          [119.420901, 36.510601],
+          [119.420001, 36.510601],
+          [119.420001, 36.510001],
+        ],
+      ],
+      metricTransform,
+      gridCellWidth: 10,
+      gridCellHeight: 10,
+      sourceNoDataValue: null,
+      noDataValue: -9999,
+    });
+
+    expect(Array.from(result.bands[0])).toEqual([1, 3, 5, 7]);
     expect(result.maskedPixelCount).toBe(0);
   });
 });
@@ -199,7 +267,8 @@ describe('applyGridNoDataMask', () => {
           [1, 1],
         ],
       ],
-      gridCellSize: 1,
+      gridCellWidth: 1,
+      gridCellHeight: 1,
       noDataValue: -9999,
     });
 

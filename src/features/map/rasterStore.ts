@@ -101,10 +101,11 @@ export const useRasterStore = create<RasterState>((set) => ({
     }),
   setPointerText: (pointerText) => set({ pointerText }),
   setLoadingProgress: (loadingPhase, loadingProgress) =>
-    set({
+    set((state) => ({
       loadingPhase,
       loadingProgress,
-      status: 'loading',
-    }),
+      // 仅在 idle 状态下触发 loading，防止元信息就绪后被预览进度回调覆盖
+      status: state.status === 'idle' ? 'loading' : state.status,
+    })),
   reset: () => set(INITIAL_STATE),
 }));

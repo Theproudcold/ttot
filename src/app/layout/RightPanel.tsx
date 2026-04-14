@@ -295,6 +295,8 @@ export function RightPanel() {
   return (
     <aside className="panel" aria-label="right-panel">
       <h2>当前结果</h2>
+
+      <h3>围栏信息</h3>
       <div className="card">
         <dl className="metric-list">
           <div className="metric-item">
@@ -306,32 +308,76 @@ export function RightPanel() {
             <dd>{fence?.summary.vertexCount ?? '--'}</dd>
           </div>
           <div className="metric-item">
-            <dt className="metric-label">预计网格数</dt>
+            <dt className="metric-label">围栏范围</dt>
+            <dd>{formatFenceBbox(fence?.summary.bbox ?? null)}</dd>
+          </div>
+        </dl>
+      </div>
+
+      <h3>网格信息</h3>
+      <div className="card">
+        <dl className="metric-list">
+          <div className="metric-item">
+            <dt className="metric-label">预计网格</dt>
             <dd>{gridSummary?.totalCells ?? '--'}</dd>
           </div>
           <div className="metric-item">
-            <dt className="metric-label">命中网格数</dt>
+            <dt className="metric-label">命中网格</dt>
             <dd>{gridSummary?.previewCellCount ?? '--'}</dd>
           </div>
           <div className="metric-item">
-            <dt className="metric-label">影像状态</dt>
-            <dd>{status}</dd>
+            <dt className="metric-label">网格比例</dt>
+            <dd>{formatGridRatio(cellSize, metadata)}</dd>
           </div>
+          {activeClassificationLayer?.mode === 'rules' && gridCells.length > 0 && (() => {
+            const rules = activeClassificationLayer.rules;
+            let totalMatchedCount = 0;
+            let totalFertilizer = 0;
+            for (const rule of rules) {
+              let ruleMatchCount = 0;
+              for (const cell of gridCells) {
+                const val = cell.aggregation?.meanValue;
+                if (val == null) continue;
+                if (val >= rule.min && (rule.max === null || val <= rule.max)) {
+                  ruleMatchCount++;
+                }
+              }
+              totalMatchedCount += ruleMatchCount;
+              if (rule.applicationRate != null) {
+                totalFertilizer += rule.applicationRate * ruleMatchCount;
+              }
+            }
+            const totalArea = totalMatchedCount * cellAreaM2;
+            return (
+              <>
+                <div className="metric-item" style={{ borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: '8px', marginTop: '4px' }}>
+                  <dt className="metric-label">分类覆盖面积</dt>
+                  <dd>{formatMetricNumber(totalArea)} m²</dd>
+                </div>
+                <div className="metric-item">
+                  <dt className="metric-label">预计总用药量</dt>
+                  <dd style={{ color: '#d35400', fontWeight: 600 }}>{formatMetricNumber(totalFertilizer)}</dd>
+                </div>
+              </>
+            );
+          })()}
+        </dl>
+      </div>
+
+      <h3>影像信息</h3>
+      <div className="card">
+        <dl className="metric-list">
           <div className="metric-item">
-            <dt className="metric-label">围栏范围</dt>
-            <dd>{formatFenceBbox(fence?.summary.bbox ?? null)}</dd>
+            <dt className="metric-label">影像状态</dt>
+            <dd>{status === 'ready' ? '已就绪' : status === 'loading' ? '读取中' : status === 'error' ? '异常' : '等待上传'}</dd>
           </div>
           <div className="metric-item">
             <dt className="metric-label">参考范围</dt>
             <dd>{formatSourceExtent(metadata)}</dd>
           </div>
           <div className="metric-item">
-            <dt className="metric-label">影像实际尺寸</dt>
+            <dt className="metric-label">实际尺寸</dt>
             <dd>{formatRasterPhysicalSize(metadata)}</dd>
-          </div>
-          <div className="metric-item">
-            <dt className="metric-label">网格比例</dt>
-            <dd>{formatGridRatio(cellSize, metadata)}</dd>
           </div>
         </dl>
       </div>

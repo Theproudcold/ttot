@@ -12,9 +12,10 @@ import type { RasterMetadata } from '@/shared/types/raster';
 function createRasterMetadata(
   overrides: Partial<RasterMetadata> & Pick<RasterMetadata, 'boundingBox' | 'crsCode'>,
 ): RasterMetadata {
+  const { boundingBox, crsCode, ...rest } = overrides;
   const metricTransform = createMetricTransform({
-    crsCode: overrides.crsCode,
-    boundingBox: overrides.boundingBox,
+    crsCode,
+    boundingBox,
   });
 
   return {
@@ -23,19 +24,19 @@ function createRasterMetadata(
     width: 100,
     height: 100,
     samplesPerPixel: 1,
-    boundingBox: overrides.boundingBox,
+    ...rest,
+    boundingBox,
     coordinateDisplayMode: metricTransform.coordinateDisplayMode,
     metricExtent: metricTransform.metricExtent,
     metricWidth: metricTransform.metricWidth,
     metricHeight: metricTransform.metricHeight,
     metricTransform,
-    origin: overrides.origin ?? [overrides.boundingBox[0], overrides.boundingBox[3], 0],
-    resolution: overrides.resolution ?? [1, -1, 0],
-    cellSize: overrides.cellSize ?? { x: 1, y: 1, unit: 'm' },
-    crsCode: overrides.crsCode,
-    crsName: overrides.crsName ?? overrides.crsCode,
-    isProjected: overrides.isProjected ?? metricTransform.coordinateDisplayMode === 'projected',
-    ...overrides,
+    origin: rest.origin ?? [boundingBox[0], boundingBox[3], 0],
+    resolution: rest.resolution ?? [1, -1, 0],
+    cellSize: rest.cellSize ?? { x: 1, y: 1, unit: 'm' },
+    crsCode,
+    crsName: rest.crsName ?? crsCode,
+    isProjected: rest.isProjected ?? metricTransform.coordinateDisplayMode === 'projected',
   };
 }
 

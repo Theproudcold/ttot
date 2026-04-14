@@ -19,6 +19,7 @@ vi.mock('@/shared/geo/geotiffWriter', () => ({
 }));
 
 import { exportFenceGeoTiff, downloadExportedGeoTiff } from '@/features/export/exportGeoTiff';
+import { createMetricTransform } from '@/shared/geo/crs';
 import type { FenceFeature } from '@/shared/types/fence';
 
 const fence: FenceFeature = {
@@ -69,6 +70,9 @@ describe('exportFenceGeoTiff', () => {
       getGDALNoData: () => null,
       getFileDirectory: () => ({
         PhotometricInterpretation: 1,
+        GeoKeyDirectory: new Uint16Array([1, 1, 0, 1, 3072, 0, 1, 4549]),
+        GeoDoubleParams: new Float64Array([120]),
+        GeoAsciiParams: 'CGCS2000|',
       }),
       readRasters: vi.fn().mockResolvedValue([new Float32Array([1, 2, 3, 4, 5, 6, 7, 8, 9])]),
     };
@@ -108,6 +112,9 @@ describe('exportFenceGeoTiff', () => {
         width: 3,
         height: 3,
         gdalNoData: undefined,
+        geoKeyDirectory: new Uint16Array([1, 1, 0, 1, 3072, 0, 1, 4549]),
+        geoDoubleParams: new Float64Array([120]),
+        geoAsciiParams: 'CGCS2000|',
       }),
     );
     const firstCall = vi.mocked(writeGeoTiffBufferMock).mock.calls[0]?.[0];
@@ -176,10 +183,7 @@ describe('exportFenceGeoTiff', () => {
         width: 2,
         height: 2,
         samplesPerPixel: 2,
-        bands: [
-          expect.any(Float64Array),
-          expect.any(Float64Array),
-        ],
+        bands: [expect.any(Float64Array), expect.any(Float64Array)],
         gdalNoData: undefined,
       }),
     );
@@ -237,6 +241,75 @@ describe('exportFenceGeoTiff', () => {
 
     const aggregatedCall = vi.mocked(writeGeoTiffBufferMock).mock.calls[0]?.[0];
     expect(aggregatedCall?.bands[0]).toEqual(new Float64Array([4, 4, 4, 4]));
+  });
+
+  it('preserves source geo tags while clipping a geographic raster by metric grid size', async () => {
+    const geographicFence: FenceFeature = {
+      geometry: {
+        type: 'Polygon',
+        coordinates: [
+          [
+            [119.420001, 36.510001],
+            [119.420901, 36.510001],
+            [119.420901, 36.510601],
+            [119.420001, 36.510601],
+            [119.420001, 36.510001],
+          ],
+        ],
+      },
+      summary: {
+        area: 0,
+        bbox: [119.420001, 36.510001, 119.420901, 36.510601],
+        vertexCount: 4,
+      },
+    };
+    const metricTransform = createMetricTransform({
+      crsCode: 'EPSG:4326',
+      boundingBox: geographicFence.summary.bbox,
+    });
+    const file = new File(['demo'], 'gps.tif', { type: 'image/tiff' });
+    const image = {
+      getWidth: () => 2,
+      getHeight: () => 2,
+      getOrigin: () => [119.420001, 36.510601, 0] as [number, number, number],
+      getResolution: () => [0.00045, -0.0003, 0] as [number, number, number],
+      getBitsPerSample: () => 32,
+      getSampleFormat: () => 3,
+      getSamplesPerPixel: () => 1,
+      getGDALNoData: () => null,
+      getFileDirectory: () => ({
+        PhotometricInterpretation: 1,
+        ModelPixelScale: [0.00045, 0.0003, 0],
+        GeoKeyDirectory: new Uint16Array([1, 1, 0, 1, 2048, 0, 1, 4326]),
+        GeoAsciiParams: 'WGS 84|',
+      }),
+      readRasters: vi.fn().mockResolvedValue([new Float32Array([1, 3, 5, 7])]),
+    };
+
+    readBlobBufferMock.mockResolvedValue(new Uint8Array([1, 2, 3]).buffer);
+    fromArrayBufferMock.mockResolvedValue({
+      getImage: vi.fn().mockResolvedValue(image),
+    });
+    writeGeoTiffBufferMock.mockReturnValue(new Uint8Array([7, 8, 9]).buffer);
+
+    await exportFenceGeoTiff({
+      file,
+      fence: geographicFence,
+      gridCellSize: 10,
+      metricTransform,
+    });
+
+    expect(writeGeoTiffBufferMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        width: 2,
+        height: 2,
+        bands: [new Float64Array([1, 3, 5, 7])],
+        geoKeyDirectory: new Uint16Array([1, 1, 0, 1, 2048, 0, 1, 4326]),
+        geoAsciiParams: 'WGS 84|',
+        modelTiepoint: [0, 0, 0, 119.420001, 36.510601, 0],
+        modelPixelScale: [0.00045, 0.0003, 0],
+      }),
+    );
   });
 });
 

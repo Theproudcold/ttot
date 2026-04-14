@@ -2,8 +2,38 @@ import { act } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { useRasterStore } from '@/features/map/rasterStore';
+import { createMetricTransform } from '@/shared/geo/crs';
 import type { RasterPreview } from '@/shared/types/raster';
+import type { RasterMetadata } from '@/shared/types/raster';
 import type { RasterValidityMask } from '@/shared/types/raster';
+
+function createRasterMetadata(): RasterMetadata {
+  const boundingBox: [number, number, number, number] = [0, 0, 1, 1];
+  const metricTransform = createMetricTransform({
+    crsCode: 'EPSG:3857',
+    boundingBox,
+  });
+
+  return {
+    sourceUrl: '/old.tif',
+    fileName: 'old.tif',
+    width: 100,
+    height: 100,
+    samplesPerPixel: 1,
+    boundingBox,
+    coordinateDisplayMode: metricTransform.coordinateDisplayMode,
+    metricExtent: metricTransform.metricExtent,
+    metricWidth: metricTransform.metricWidth,
+    metricHeight: metricTransform.metricHeight,
+    metricTransform,
+    origin: [0, 1, 0],
+    resolution: [1, -1, 0],
+    cellSize: { x: 1, y: 1, unit: 'm' },
+    crsCode: 'EPSG:3857',
+    crsName: 'EPSG:3857',
+    isProjected: true,
+  };
+}
 
 describe('useRasterStore', () => {
   afterEach(() => {
@@ -27,20 +57,7 @@ describe('useRasterStore', () => {
     };
 
     act(() => {
-      useRasterStore.getState().setMetadata({
-        sourceUrl: '/old.tif',
-        fileName: 'old.tif',
-        width: 100,
-        height: 100,
-        samplesPerPixel: 1,
-        boundingBox: [0, 0, 1, 1],
-        origin: [0, 1, 0],
-        resolution: [1, -1, 0],
-        cellSize: { x: 1, y: 1, unit: 'm' },
-        crsCode: 'EPSG:3857',
-        crsName: 'EPSG:3857',
-        isProjected: true,
-      });
+      useRasterStore.getState().setMetadata(createRasterMetadata());
       useRasterStore.getState().setPreview(preview);
       useRasterStore.getState().setValidityMask(validityMask);
       useRasterStore.getState().selectFile(file);

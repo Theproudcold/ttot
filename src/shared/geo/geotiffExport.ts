@@ -1,5 +1,6 @@
 import { fromArrayBuffer } from 'geotiff';
 
+import type { MetricTransform } from '@/shared/geo/crs';
 import { getFenceSummary, isPointInFence } from '@/shared/geo/fence';
 import {
   aggregateGridCellsFromRasterWindow,
@@ -106,6 +107,48 @@ function getPixelCenter(
   const [resolutionX, resolutionY] = resolution;
 
   return [originX + (col + 0.5) * resolutionX, originY + (row + 0.5) * resolutionY];
+}
+
+function createIdentityMetricTransform(fenceRings: FenceRings): MetricTransform {
+  const { bbox } = getFenceSummary(fenceRings);
+  const [minX, minY, maxX, maxY] = bbox;
+
+  return {
+    coordinateDisplayMode: 'projected',
+    metricExtent: {
+      minX,
+      minY,
+      maxX,
+      maxY,
+    },
+    metricWidth: Math.max(0, maxX - minX),
+    metricHeight: Math.max(0, maxY - minY),
+    toMetric: ([x, y]) => [x, y],
+    fromMetric: ([x, y]) => [x, y],
+  };
+}
+
+function resolveMetricTransform(fenceRings: FenceRings, metricTransform?: MetricTransform): MetricTransform {
+  return metricTransform ?? createIdentityMetricTransform(fenceRings);
+}
+
+function getMetricBounds(fenceRings: FenceRings, metricTransform: MetricTransform): [number, number, number, number] {
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+
+  for (const ring of fenceRings) {
+    for (const point of ring) {
+      const [x, y] = metricTransform.toMetric(point);
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  }
+
+  return [minX, minY, maxX, maxY];
 }
 
 function getNoDataCandidates(sampleFormat: number, bitsPerSample: number): number[] {
@@ -217,10 +260,24 @@ export function buildGridAggregationFromFenceWindow(input: {
   origin: RasterOrigin;
   resolution: RasterResolution;
   fenceRings: FenceRings;
-  gridCellSize: number;
+  gridCellWidth: number;
+  gridCellHeight: number;
   sourceNoDataValue: number | null;
+  metricTransform?: MetricTransform;
 }): GridAggregationResult {
-  const { bands, window, width, height, origin, resolution, fenceRings, gridCellSize, sourceNoDataValue } =
+  const {
+    bands,
+    window,
+    width,
+    height,
+    origin,
+    resolution,
+    fenceRings,
+    gridCellWidth,
+    gridCellHeight,
+    sourceNoDataValue,
+    metricTransform,
+  } =
     input;
   const primaryBand = bands[0];
   if (!primaryBand) {
@@ -234,9 +291,11 @@ export function buildGridAggregationFromFenceWindow(input: {
     origin,
     resolution,
     fenceRings,
-    gridCellSize,
+    gridCellWidth,
+    gridCellHeight,
     band: primaryBand,
     noDataValue: sourceNoDataValue,
+    metricTransform,
   });
 }
 
@@ -248,9 +307,11 @@ export function applyGridAggregationToFenceWindowBands(input: {
   origin: RasterOrigin;
   resolution: RasterResolution;
   fenceRings: FenceRings;
-  gridCellSize: number;
+  gridCellWidth: number;
+  gridCellHeight: number;
   sourceNoDataValue: number | null;
   noDataValue: number;
+  metricTransform?: MetricTransform;
 }): { aggregation: GridAggregationResult; bands: Float64Array[]; maskedPixelCount: number } {
   const {
     bands,
@@ -260,9 +321,11 @@ export function applyGridAggregationToFenceWindowBands(input: {
     origin,
     resolution,
     fenceRings,
-    gridCellSize,
+    gridCellWidth,
+    gridCellHeight,
     sourceNoDataValue,
     noDataValue,
+    metricTransform,
   } = input;
   const aggregation = buildGridAggregationFromFenceWindow({
     bands,
@@ -272,8 +335,10 @@ export function applyGridAggregationToFenceWindowBands(input: {
     origin,
     resolution,
     fenceRings,
-    gridCellSize,
+    gridCellWidth,
+    gridCellHeight,
     sourceNoDataValue,
+    metricTransform,
   });
   const rewritten = applyGridAggregationToBands({
     bands,
@@ -284,8 +349,10 @@ export function applyGridAggregationToFenceWindowBands(input: {
     origin,
     resolution,
     fenceRings,
-    gridCellSize,
+    gridCellWidth,
+    gridCellHeight,
     noDataValue,
+    metricTransform,
   });
 
   return {
@@ -303,24 +370,41 @@ export function applyGridNoDataMask<T extends SupportedRasterArray>(input: {
   origin: RasterOrigin;
   resolution: RasterResolution;
   fenceRings: FenceRings;
-  gridCellSize: number;
+  gridCellWidth: number;
+  gridCellHeight: number;
   noDataValue: number;
+  metricTransform?: MetricTransform;
 }): { bands: T[]; maskedPixelCount: number } {
-  const { bands, window, width, height, origin, resolution, fenceRings, gridCellSize, noDataValue } = input;
+  const {
+    bands,
+    window,
+    width,
+    height,
+    origin,
+    resolution,
+    fenceRings,
+    gridCellWidth,
+    gridCellHeight,
+    noDataValue,
+    metricTransform,
+  } = input;
+  const resolvedMetricTransform = resolveMetricTransform(fenceRings, metricTransform);
   const [windowStartCol, windowStartRow] = window;
-  const { bbox } = getFenceSummary(fenceRings);
-  const [gridMinX, gridMinY, gridMaxX, gridMaxY] = bbox;
-  const cols = Math.ceil((gridMaxX - gridMinX) / gridCellSize);
-  const rows = Math.ceil((gridMaxY - gridMinY) / gridCellSize);
+  const [gridMinX, gridMinY, gridMaxX, gridMaxY] = getMetricBounds(fenceRings, resolvedMetricTransform);
+  const cols = Math.ceil((gridMaxX - gridMinX) / gridCellWidth);
+  const rows = Math.ceil((gridMaxY - gridMinY) / gridCellHeight);
   const includedGridKeys = new Set<string>();
 
   for (let row = 0; row < rows; row += 1) {
     for (let col = 0; col < cols; col += 1) {
-      const cellMinX = gridMinX + col * gridCellSize;
-      const cellMinY = gridMinY + row * gridCellSize;
-      const cellMaxX = Math.min(cellMinX + gridCellSize, gridMaxX);
-      const cellMaxY = Math.min(cellMinY + gridCellSize, gridMaxY);
-      const center: FencePosition = [(cellMinX + cellMaxX) / 2, (cellMinY + cellMaxY) / 2];
+      const cellMinX = gridMinX + col * gridCellWidth;
+      const cellMinY = gridMinY + row * gridCellHeight;
+      const cellMaxX = Math.min(cellMinX + gridCellWidth, gridMaxX);
+      const cellMaxY = Math.min(cellMinY + gridCellHeight, gridMaxY);
+      const center = resolvedMetricTransform.fromMetric([
+        (cellMinX + cellMaxX) / 2,
+        (cellMinY + cellMaxY) / 2,
+      ]);
 
       if (isPointInFence(center, fenceRings)) {
         includedGridKeys.add(`${row}:${col}`);
@@ -337,14 +421,11 @@ export function applyGridNoDataMask<T extends SupportedRasterArray>(input: {
 
     for (let row = 0; row < height; row += 1) {
       for (let col = 0; col < width; col += 1) {
-        const [centerX, centerY] = getPixelCenter(
-          windowStartCol + col,
-          windowStartRow + row,
-          origin,
-          resolution,
+        const [centerX, centerY] = resolvedMetricTransform.toMetric(
+          getPixelCenter(windowStartCol + col, windowStartRow + row, origin, resolution),
         );
-        const gridCol = Math.floor((centerX - gridMinX) / gridCellSize);
-        const gridRow = Math.floor((centerY - gridMinY) / gridCellSize);
+        const gridCol = Math.floor((centerX - gridMinX) / gridCellWidth);
+        const gridRow = Math.floor((centerY - gridMinY) / gridCellHeight);
         const gridKey = `${gridRow}:${gridCol}`;
 
         if (

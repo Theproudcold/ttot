@@ -107,6 +107,17 @@ function createShortArrayTag(tag: number, values: number[] | Uint16Array): TiffT
     return createInlineShortTag(tag, normalized[0] ?? 0);
   }
 
+  // TIFF 规范：2 个 SHORT = 4 字节，恰好可以内联存入 IFD entry 的 value 字段
+  // 必须内联，否则读取端会把 value 字段当作内联数据而非 offset 指针，导致解析错误
+  if (normalized.length === 2) {
+    return {
+      tag,
+      type: 3,
+      count: 2,
+      inlineValue: ((normalized[0] ?? 0) & 0xFFFF) | (((normalized[1] ?? 0) & 0xFFFF) << 16),
+    };
+  }
+
   return {
     tag,
     type: 3,
@@ -271,6 +282,11 @@ export function writeGeoTiffBuffer(options: GeoTiffWriteOptions): ArrayBuffer {
     createDoubleArrayTag(33922, modelTiepoint),
   ];
 
+  if (samplesPerPixel > 1 && photometricInterpretation === 1) {
+    const extraSamples = Array.from({ length: samplesPerPixel - 1 }, () => 0); // 0 = Unspecified Data
+    tags.push(createShortArrayTag(338, extraSamples));
+  }
+
   if (geoKeyDirectory && geoKeyDirectory.length > 0) {
     tags.push(createShortArrayTag(34735, geoKeyDirectory));
   }
@@ -332,12 +348,10 @@ export function writeGeoTiffBuffer(options: GeoTiffWriteOptions): ArrayBuffer {
       return;
     }
 
-    if (tag.type === 3) {
-      view.setUint16(entryOffset + 8, tag.inlineValue, true);
-      view.setUint16(entryOffset + 10, 0, true);
-      return;
-    }
-
+    // 统一使用 setUint32 写入内联值：
+    // - SHORT count=1: 值占低 16 位，高 16 位自然为 0
+    // - SHORT count=2: 两个值通过位运算打包在 uint32 中
+    // - LONG  count=1: 直接写 uint32
     view.setUint32(entryOffset + 8, tag.inlineValue, true);
   });
 

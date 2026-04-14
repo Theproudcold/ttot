@@ -19,6 +19,7 @@ vi.mock('@/shared/geo/raster', () => ({
 
 import { useRasterLoader } from '@/features/map/useRasterLoader';
 import { useRasterStore } from '@/features/map/rasterStore';
+import { createMetricTransform } from '@/shared/geo/crs';
 import type { RasterMetadata, RasterPreview, RasterValidityMask } from '@/shared/types/raster';
 
 function createDeferred<T>() {
@@ -55,13 +56,28 @@ describe('useRasterLoader', () => {
     const previewDeferred = createDeferred<RasterPreview>();
     const validityDeferred = createDeferred<RasterValidityMask>();
 
+    const boundingBox: [number, number, number, number] = [
+      447934.5769,
+      4041573.0551,
+      448017.5878,
+      4041619.7864,
+    ];
+    const metricTransform = createMetricTransform({
+      crsCode: 'EPSG:4549',
+      boundingBox,
+    });
     const metadata: RasterMetadata = {
       sourceUrl: null,
       fileName: 'test2.tif',
       width: 5647,
       height: 3179,
       samplesPerPixel: 1,
-      boundingBox: [447934.5769, 4041573.0551, 448017.5878, 4041619.7864],
+      boundingBox,
+      coordinateDisplayMode: metricTransform.coordinateDisplayMode,
+      metricExtent: metricTransform.metricExtent,
+      metricWidth: metricTransform.metricWidth,
+      metricHeight: metricTransform.metricHeight,
+      metricTransform,
       origin: [447934.5769, 4041619.7864, 0],
       resolution: [0.0147, -0.0147, 0],
       cellSize: { x: 0.0147, y: 0.0147, unit: 'm' },
@@ -77,7 +93,7 @@ describe('useRasterLoader', () => {
     const validityMask: RasterValidityMask = {
       width: 256,
       height: 144,
-      boundingBox: [447934.5769, 4041573.0551, 448017.5878, 4041619.7864],
+      boundingBox,
       data: new Uint8Array(256 * 144).fill(1),
     };
 

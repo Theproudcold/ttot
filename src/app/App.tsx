@@ -1,4 +1,5 @@
 import { LeftPanel } from '@/app/layout/LeftPanel';
+import { LoadingOverlay } from '@/app/layout/LoadingOverlay';
 import { RightPanel } from '@/app/layout/RightPanel';
 import { TopBar } from '@/app/layout/TopBar';
 import { MapView } from '@/features/map/MapView';
@@ -14,6 +15,7 @@ export default function App() {
         <RightPanel />
       </div>
       <AlertOverlay />
+      <LoadingOverlay />
     </div>
   );
 }

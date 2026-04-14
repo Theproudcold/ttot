@@ -14,6 +14,7 @@ import { Fill, Stroke, Style } from 'ol/style.js';
 
 import { useFenceStore } from '@/features/fence/fenceStore';
 import { useGridStore } from '@/features/grid/gridStore';
+import { useLoadingStore } from '@/features/loading/loadingStore';
 import { buildMapViewDebugPayload, debugLog, summarizePreviewPayload } from '@/features/map/debugLogger';
 import { useMapUiStore } from '@/features/map/mapUiStore';
 import { ensureProjectionRegistered, getDegreeToMeterScale } from '@/shared/geo/crs';
@@ -618,6 +619,7 @@ export function useMap(metadata: RasterMetadata | null) {
 
       void (async () => {
         try {
+          useLoadingStore.getState().start('正在计算网格聚合...');
           const fenceWindow = await readGeoTiffFenceWindow({
             file: sourceFile,
             fenceRings: fence.geometry.coordinates,
@@ -630,6 +632,7 @@ export function useMap(metadata: RasterMetadata | null) {
           const aggregation = buildGridAggregationFromFenceWindow({
             ...fenceWindow,
             fenceRings: fence.geometry.coordinates,
+            metricTransform,
             gridCellWidth: cellWidth,
             gridCellHeight: cellHeight,
           });
@@ -656,6 +659,8 @@ export function useMap(metadata: RasterMetadata | null) {
           }
 
           debugLog('map', '网格聚合预览读取失败，回退到几何网格', error);
+        } finally {
+          useLoadingStore.getState().stop();
         }
       })();
     } catch (error) {

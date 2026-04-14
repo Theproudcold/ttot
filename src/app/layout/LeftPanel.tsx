@@ -6,6 +6,7 @@ import {
   downloadGeoJson,
 } from '@/features/export/exportGeoJson';
 import { downloadExportedGeoTiff, exportFenceGeoTiff } from '@/features/export/exportGeoTiff';
+import { useLoadingStore } from '@/features/loading/loadingStore';
 import { useFenceStore } from '@/features/fence/fenceStore';
 import { useGridStore } from '@/features/grid/gridStore';
 import { useMapUiStore } from '@/features/map/mapUiStore';
@@ -52,8 +53,8 @@ function formatGridRatio(cellSize: number, metadata: RasterMetadata | null | und
 }
 
 export function LeftPanel() {
-  const [isExportingGeoTiff, setIsExportingGeoTiff] = useState(false);
   const [geoTiffExportMessage, setGeoTiffExportMessage] = useState<string | null>(null);
+  const loading = useLoadingStore();
   const sourceLabel = useRasterStore((state) => state.sourceLabel);
   const sourceFile = useRasterStore((state) => state.sourceFile);
   const selectFile = useRasterStore((state) => state.selectFile);
@@ -84,22 +85,20 @@ export function LeftPanel() {
     null;
 
   const handleGeoTiffExport = async () => {
-    if (!sourceFile || !fence || isExportingGeoTiff) {
+    if (!sourceFile || !fence || loading.active) {
       return;
     }
 
-    setIsExportingGeoTiff(true);
+    loading.start('正在导出 GeoTIFF...');
     setGeoTiffExportMessage(null);
-
-    const isDegree = metadata?.cellSize.unit === 'degree';
 
     try {
       const { blob, filename } = await exportFenceGeoTiff({
         file: sourceFile,
         fence,
         gridCellSize: cellSize,
-        isDegree,
-        activeClassificationLayer, // 往下穿透
+        activeClassificationLayer,
+        metricTransform: metadata?.metricTransform ?? null,
       });
       await downloadExportedGeoTiff(blob, filename);
       setGeoTiffExportMessage('GeoTIFF 导出完成');
@@ -107,7 +106,7 @@ export function LeftPanel() {
       const detail = error instanceof Error ? error.message : '请稍后重试';
       setGeoTiffExportMessage(`GeoTIFF 导出失败：${detail}`);
     } finally {
-      setIsExportingGeoTiff(false);
+      loading.stop();
     }
   };
 
@@ -277,13 +276,15 @@ export function LeftPanel() {
           <button
             type="button"
             className="toolbar-button toolbar-button--ghost"
-            disabled={!fence}
+            disabled={!fence || loading.active}
             onClick={() => {
-              if (!fence) {
-                return;
+              if (!fence) return;
+              loading.start('正在导出围栏...');
+              try {
+                downloadGeoJson(createFenceGeoJson(fence), 'fence.geojson');
+              } finally {
+                loading.stop();
               }
-
-              downloadGeoJson(createFenceGeoJson(fence), 'fence.geojson');
             }}
           >
             导出围栏
@@ -291,13 +292,15 @@ export function LeftPanel() {
           <button
             type="button"
             className="toolbar-button toolbar-button--ghost"
-            disabled={!gridSummary || gridCells.length === 0}
+            disabled={!gridSummary || gridCells.length === 0 || loading.active}
             onClick={() => {
-              if (!gridSummary || gridCells.length === 0) {
-                return;
+              if (!gridSummary || gridCells.length === 0) return;
+              loading.start('正在导出网格...');
+              try {
+                downloadGeoJson(createGridGeoJson(gridCells, gridSummary, activeClassificationLayer), 'grid.geojson');
+              } finally {
+                loading.stop();
               }
-
-              downloadGeoJson(createGridGeoJson(gridCells, gridSummary, activeClassificationLayer), 'grid.geojson');
             }}
           >
             导出网格
@@ -305,12 +308,12 @@ export function LeftPanel() {
           <button
             type="button"
             className="toolbar-button toolbar-button--ghost"
-            disabled={!sourceFile || !fence || isExportingGeoTiff}
+            disabled={!sourceFile || !fence || loading.active}
             onClick={() => {
               void handleGeoTiffExport();
             }}
           >
-            {isExportingGeoTiff ? '正在导出 GeoTIFF' : '导出 GeoTIFF'}
+            {loading.active ? '处理中...' : '导出 GeoTIFF'}
           </button>
         </div>
         {geoTiffExportMessage ? <p className="toolbar-hint">{geoTiffExportMessage}</p> : null}

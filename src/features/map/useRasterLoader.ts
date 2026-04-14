@@ -101,7 +101,11 @@ export function useRasterLoader(options?: RasterLoaderOptions) {
       })
       .catch((error) => {
         if (!disposed) {
-          debugLog('loader', '预览生成失败', error);
+          const errorDetail = error instanceof Error
+            ? { message: error.message, stack: error.stack }
+            : error;
+          debugLog('loader', '预览生成失败', errorDetail);
+          console.error('[GeoTIFF] 预览生成失败:', error);
           setPreviewStatus('error');
         }
       });

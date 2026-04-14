@@ -12,6 +12,12 @@ export type MetricExtent = {
   maxY: number;
 };
 
+export function getDegreeToMeterScale(latitude: number): { scaleX: number; scaleY: number } {
+  const scaleY = 111320;
+  const scaleX = 111320 * Math.cos((latitude * Math.PI) / 180);
+  return { scaleX, scaleY };
+}
+
 export type GridEstimate = {
   rows: number;
   cols: number;

@@ -5,6 +5,7 @@ import { LeftPanel } from '@/app/layout/LeftPanel';
 import { downloadExportedGeoTiff, exportFenceGeoTiff } from '@/features/export/exportGeoTiff';
 import { useFenceStore } from '@/features/fence/fenceStore';
 import { useGridStore } from '@/features/grid/gridStore';
+import { useLoadingStore } from '@/features/loading/loadingStore';
 import { useRasterStore } from '@/features/map/rasterStore';
 
 const { downloadGeoJson } = vi.hoisted(() => ({
@@ -33,6 +34,7 @@ describe('ExportControls', () => {
       useFenceStore.getState().reset();
       useGridStore.getState().reset();
       useRasterStore.getState().reset();
+      useLoadingStore.getState().stop();
     });
     downloadGeoJson.mockReset();
     vi.mocked(exportFenceGeoTiff).mockReset();
@@ -119,7 +121,7 @@ describe('ExportControls', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '导出 GeoTIFF' }));
 
-    expect(screen.getByRole('button', { name: '正在导出 GeoTIFF' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '处理中...' })).toBeDisabled();
   });
 
   it('shows success and failure messages for geotiff export', async () => {
@@ -148,6 +150,9 @@ describe('ExportControls', () => {
 
     await waitFor(() => {
       expect(screen.getByText('GeoTIFF 导出完成')).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '导出 GeoTIFF' })).toBeEnabled();
     });
 
     vi.mocked(exportFenceGeoTiff).mockRejectedValueOnce(new Error('围栏超出影像范围'));

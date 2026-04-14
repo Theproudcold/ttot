@@ -1,3 +1,4 @@
+import type { MetricTransform } from '@/shared/geo/crs';
 import { getFenceSummary, isPointInFence } from '@/shared/geo/fence';
 import type { FencePosition, FenceRings } from '@/shared/types/fence';
 import type { GridAggregationResult, GridCellAggregation } from '@/shared/types/grid';
@@ -15,8 +16,8 @@ type SupportedRasterArray =
 
 type PixelWindow = [number, number, number, number];
 
-function assertValidGridCellSize(gridCellSize: number): void {
-  if (!Number.isFinite(gridCellSize) || gridCellSize <= 0) {
+function assertValidGridCellSize(gridCellWidth: number, gridCellHeight: number): void {
+  if (!Number.isFinite(gridCellWidth) || gridCellWidth <= 0 || !Number.isFinite(gridCellHeight) || gridCellHeight <= 0) {
     throw new Error('cell size must be greater than 0');
   }
 }
@@ -46,18 +47,64 @@ function buildCellAggregation(cellId: string, row: number, col: number): GridCel
   };
 }
 
-function getGridMetrics(fenceRings: FenceRings, gridCellSize: number) {
-  assertValidGridCellSize(gridCellSize);
+function createIdentityMetricTransform(fenceRings: FenceRings): MetricTransform {
   const { bbox } = getFenceSummary(fenceRings);
-  const [gridMinX, gridMinY, gridMaxX, gridMaxY] = bbox;
+  const [minX, minY, maxX, maxY] = bbox;
+
+  return {
+    coordinateDisplayMode: 'projected',
+    metricExtent: {
+      minX,
+      minY,
+      maxX,
+      maxY,
+    },
+    metricWidth: Math.max(0, maxX - minX),
+    metricHeight: Math.max(0, maxY - minY),
+    toMetric: ([x, y]) => [x, y],
+    fromMetric: ([x, y]) => [x, y],
+  };
+}
+
+function resolveMetricTransform(fenceRings: FenceRings, metricTransform?: MetricTransform): MetricTransform {
+  return metricTransform ?? createIdentityMetricTransform(fenceRings);
+}
+
+function getMetricBounds(fenceRings: FenceRings, metricTransform: MetricTransform): [number, number, number, number] {
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+
+  for (const ring of fenceRings) {
+    for (const point of ring) {
+      const [x, y] = metricTransform.toMetric(point);
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  }
+
+  return [minX, minY, maxX, maxY];
+}
+
+function getGridMetrics(
+  fenceRings: FenceRings,
+  gridCellWidth: number,
+  gridCellHeight: number,
+  metricTransform: MetricTransform,
+) {
+  assertValidGridCellSize(gridCellWidth, gridCellHeight);
+  const [gridMinX, gridMinY, gridMaxX, gridMaxY] = getMetricBounds(fenceRings, metricTransform);
 
   return {
     gridMinX,
     gridMinY,
     gridMaxX,
     gridMaxY,
-    cols: Math.ceil((gridMaxX - gridMinX) / gridCellSize),
-    rows: Math.ceil((gridMaxY - gridMinY) / gridCellSize),
+    cols: Math.ceil((gridMaxX - gridMinX) / gridCellWidth),
+    rows: Math.ceil((gridMaxY - gridMinY) / gridCellHeight),
   };
 }
 
@@ -68,20 +115,23 @@ function getCellBounds(input: {
   gridMinY: number;
   gridMaxX: number;
   gridMaxY: number;
-  gridCellSize: number;
+  gridCellWidth: number;
+  gridCellHeight: number;
 }): { minX: number; minY: number; maxX: number; maxY: number } {
-  const { row, col, gridMinX, gridMinY, gridMaxX, gridMaxY, gridCellSize } = input;
-  const minX = gridMinX + col * gridCellSize;
-  const maxX = Math.min(minX + gridCellSize, gridMaxX);
-  const minY = gridMinY + row * gridCellSize;
-  const maxY = Math.min(minY + gridCellSize, gridMaxY);
+  const { row, col, gridMinX, gridMinY, gridMaxX, gridMaxY, gridCellWidth, gridCellHeight } = input;
+  const minX = gridMinX + col * gridCellWidth;
+  const maxX = Math.min(minX + gridCellWidth, gridMaxX);
+  const minY = gridMinY + row * gridCellHeight;
+  const maxY = Math.min(minY + gridCellHeight, gridMaxY);
 
   return { minX, minY, maxX, maxY };
 }
 
 function buildIncludedCellIds(
   fenceRings: FenceRings,
-  gridCellSize: number,
+  gridCellWidth: number,
+  gridCellHeight: number,
+  metricTransform: MetricTransform,
 ): {
   includedCellIds: Set<string>;
   gridMinX: number;
@@ -91,7 +141,7 @@ function buildIncludedCellIds(
   cols: number;
   rows: number;
 } {
-  const metrics = getGridMetrics(fenceRings, gridCellSize);
+  const metrics = getGridMetrics(fenceRings, gridCellWidth, gridCellHeight, metricTransform);
   const includedCellIds = new Set<string>();
 
   for (let row = 0; row < metrics.rows; row += 1) {
@@ -103,9 +153,10 @@ function buildIncludedCellIds(
         gridMinY: metrics.gridMinY,
         gridMaxX: metrics.gridMaxX,
         gridMaxY: metrics.gridMaxY,
-        gridCellSize,
+        gridCellWidth,
+        gridCellHeight,
       });
-      const center: FencePosition = [(minX + maxX) / 2, (minY + maxY) / 2];
+      const center = metricTransform.fromMetric([(minX + maxX) / 2, (minY + maxY) / 2]);
 
       if (isPointInFence(center, fenceRings)) {
         includedCellIds.add(`r${row}-c${col}`);
@@ -125,13 +176,14 @@ function getCellIdForPixel(input: {
   gridMinY: number;
   cols: number;
   rows: number;
-  gridCellSize: number;
+  gridCellWidth: number;
+  gridCellHeight: number;
   includedCellIds: Set<string>;
 }): { cellId: string; row: number; col: number } | null {
-  const { center, gridMinX, gridMinY, cols, rows, gridCellSize, includedCellIds } = input;
+  const { center, gridMinX, gridMinY, cols, rows, gridCellWidth, gridCellHeight, includedCellIds } = input;
   const [centerX, centerY] = center;
-  const col = Math.floor((centerX - gridMinX) / gridCellSize);
-  const row = Math.floor((centerY - gridMinY) / gridCellSize);
+  const col = Math.floor((centerX - gridMinX) / gridCellWidth);
+  const row = Math.floor((centerY - gridMinY) / gridCellHeight);
 
   if (col < 0 || col >= cols || row < 0 || row >= rows) {
     return null;
@@ -167,31 +219,51 @@ export function aggregateGridCellsFromRasterWindow(input: {
   origin: RasterOrigin;
   resolution: RasterResolution;
   fenceRings: FenceRings;
-  gridCellSize: number;
+  gridCellWidth: number;
+  gridCellHeight: number;
   band: SupportedRasterArray;
   noDataValue: number | null;
+  metricTransform?: MetricTransform;
 }): GridAggregationResult {
-  const { window, width, height, origin, resolution, fenceRings, gridCellSize, band, noDataValue } =
+  const {
+    window,
+    width,
+    height,
+    origin,
+    resolution,
+    fenceRings,
+    gridCellWidth,
+    gridCellHeight,
+    band,
+    noDataValue,
+    metricTransform,
+  } =
     input;
-  assertValidGridCellSize(gridCellSize);
+  assertValidGridCellSize(gridCellWidth, gridCellHeight);
+  const resolvedMetricTransform = resolveMetricTransform(fenceRings, metricTransform);
   const [windowStartCol, windowStartRow] = window;
   const { includedCellIds, gridMinX, gridMinY, cols, rows } = buildIncludedCellIds(
     fenceRings,
-    gridCellSize,
+    gridCellWidth,
+    gridCellHeight,
+    resolvedMetricTransform,
   );
   const cellsById: Record<string, GridCellAggregation> = {};
 
   for (let row = 0; row < height; row += 1) {
     for (let col = 0; col < width; col += 1) {
       const pixelIndex = row * width + col;
-      const center = getPixelCenter(windowStartCol + col, windowStartRow + row, origin, resolution);
+      const center = resolvedMetricTransform.toMetric(
+        getPixelCenter(windowStartCol + col, windowStartRow + row, origin, resolution),
+      );
       const cellMatch = getCellIdForPixel({
         center,
         gridMinX,
         gridMinY,
         cols,
         rows,
-        gridCellSize,
+        gridCellWidth,
+        gridCellHeight,
         includedCellIds,
       });
 
@@ -230,8 +302,10 @@ export function applyGridAggregationToBands(input: {
   origin: RasterOrigin;
   resolution: RasterResolution;
   fenceRings: FenceRings;
-  gridCellSize: number;
+  gridCellWidth: number;
+  gridCellHeight: number;
   noDataValue: number;
+  metricTransform?: MetricTransform;
 }): { bands: Float64Array[]; maskedPixelCount: number } {
   const {
     bands,
@@ -242,14 +316,19 @@ export function applyGridAggregationToBands(input: {
     origin,
     resolution,
     fenceRings,
-    gridCellSize,
+    gridCellWidth,
+    gridCellHeight,
     noDataValue,
+    metricTransform,
   } = input;
-  assertValidGridCellSize(gridCellSize);
+  assertValidGridCellSize(gridCellWidth, gridCellHeight);
+  const resolvedMetricTransform = resolveMetricTransform(fenceRings, metricTransform);
   const [windowStartCol, windowStartRow] = window;
   const { includedCellIds, gridMinX, gridMinY, cols, rows } = buildIncludedCellIds(
     fenceRings,
-    gridCellSize,
+    gridCellWidth,
+    gridCellHeight,
+    resolvedMetricTransform,
   );
 
   const rewrittenBands = bands.map((band) => {
@@ -258,14 +337,17 @@ export function applyGridAggregationToBands(input: {
     for (let row = 0; row < height; row += 1) {
       for (let col = 0; col < width; col += 1) {
         const pixelIndex = row * width + col;
-        const center = getPixelCenter(windowStartCol + col, windowStartRow + row, origin, resolution);
+        const center = resolvedMetricTransform.toMetric(
+          getPixelCenter(windowStartCol + col, windowStartRow + row, origin, resolution),
+        );
         const cellMatch = getCellIdForPixel({
           center,
           gridMinX,
           gridMinY,
           cols,
           rows,
-          gridCellSize,
+          gridCellWidth,
+          gridCellHeight,
           includedCellIds,
         });
         const outputValue = cellMatch

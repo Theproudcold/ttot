@@ -41,6 +41,7 @@ export type RasterClassificationRule = {
   max: number | null;
   color: string;
   label: string;
+  applicationRate?: number | null;
 };
 
 type RasterClassificationLayerBase = {

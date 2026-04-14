@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
+import { createMetricTransform } from '@/shared/geo/crs';
 import {
   aggregateGridCellsFromRasterWindow,
   applyGridAggregationToBands,
 } from '@/shared/geo/gridAggregation';
-import type { GridAggregationResult } from '@/shared/types/grid';
 import type { FenceRings } from '@/shared/types/fence';
+import type { GridAggregationResult } from '@/shared/types/grid';
 import type { RasterOrigin, RasterResolution } from '@/shared/types/raster';
 
 const fenceRings: FenceRings = [
@@ -28,7 +29,8 @@ const baseInput = {
   origin,
   resolution,
   fenceRings,
-  gridCellSize: 1,
+  gridCellWidth: 1,
+  gridCellHeight: 1,
 };
 
 describe('gridAggregation', () => {
@@ -36,7 +38,7 @@ describe('gridAggregation', () => {
     expect(() =>
       aggregateGridCellsFromRasterWindow({
         ...baseInput,
-        gridCellSize: 0,
+        gridCellWidth: 0,
         band: new Float32Array([1, 3, 5, 7]),
         noDataValue: null,
       }),
@@ -47,7 +49,7 @@ describe('gridAggregation', () => {
     expect(() =>
       aggregateGridCellsFromRasterWindow({
         ...baseInput,
-        gridCellSize: Number.NaN,
+        gridCellWidth: Number.NaN,
         band: new Float32Array([1, 3, 5, 7]),
         noDataValue: null,
       }),
@@ -63,7 +65,8 @@ describe('gridAggregation', () => {
         origin,
         resolution,
         fenceRings,
-        gridCellSize: Number.POSITIVE_INFINITY,
+        gridCellWidth: Number.POSITIVE_INFINITY,
+        gridCellHeight: 1,
         noDataValue: -9999,
       }),
     ).toThrow('cell size must be greater than 0');
@@ -113,7 +116,8 @@ describe('gridAggregation', () => {
           [0, 0],
         ],
       ],
-      gridCellSize: 2,
+      gridCellWidth: 2,
+      gridCellHeight: 2,
       band: new Float32Array([1, 3, 5, 7, 9, 11, 13, 15]),
       noDataValue: null,
     });
@@ -196,7 +200,8 @@ describe('gridAggregation', () => {
           [1, 1],
         ],
       ],
-      gridCellSize: 1,
+      gridCellWidth: 1,
+      gridCellHeight: 1,
       band: new Float32Array([1, 2, 3, 4, 5, 6, 7, 8, 9]),
       noDataValue: null,
     });
@@ -232,7 +237,8 @@ describe('gridAggregation', () => {
       origin,
       resolution,
       fenceRings,
-      gridCellSize: 1,
+      gridCellWidth: 1,
+      gridCellHeight: 1,
       noDataValue: -9999,
     });
 
@@ -263,7 +269,8 @@ describe('gridAggregation', () => {
       origin,
       resolution,
       fenceRings,
-      gridCellSize: 2,
+      gridCellWidth: 2,
+      gridCellHeight: 2,
       noDataValue: -9999,
     });
 
@@ -293,7 +300,8 @@ describe('gridAggregation', () => {
       origin,
       resolution,
       fenceRings,
-      gridCellSize: 1,
+      gridCellWidth: 1,
+      gridCellHeight: 1,
       noDataValue: -9999,
     });
 
@@ -325,7 +333,8 @@ describe('gridAggregation', () => {
       origin,
       resolution,
       fenceRings,
-      gridCellSize: 2,
+      gridCellWidth: 2,
+      gridCellHeight: 2,
       noDataValue: -9999,
     });
 
@@ -361,11 +370,92 @@ describe('gridAggregation', () => {
       origin,
       resolution,
       fenceRings,
-      gridCellSize: 2,
+      gridCellWidth: 2,
+      gridCellHeight: 2,
       noDataValue: -9999,
     });
 
     expect(result.bands[0]).toBeInstanceOf(Float64Array);
     expect(Array.from(result.bands[0])).toEqual([1.5, 1.5, 1.5, 1.5]);
+  });
+
+  it('aggregates geographic raster pixels by metric grid size instead of raw degree deltas', () => {
+    const geographicFenceRings: FenceRings = [
+      [
+        [119.420001, 36.510001],
+        [119.420901, 36.510001],
+        [119.420901, 36.510601],
+        [119.420001, 36.510601],
+        [119.420001, 36.510001],
+      ],
+    ];
+    const metricTransform = createMetricTransform({
+      crsCode: 'EPSG:4326',
+      boundingBox: [119.420001, 36.510001, 119.420901, 36.510601],
+    });
+
+    const aggregation = aggregateGridCellsFromRasterWindow({
+      window: [0, 0, 2, 2],
+      width: 2,
+      height: 2,
+      origin: [119.420001, 36.510601, 0],
+      resolution: [0.00045, -0.0003, 0],
+      fenceRings: geographicFenceRings,
+      metricTransform,
+      gridCellWidth: 10,
+      gridCellHeight: 10,
+      band: new Float32Array([1, 3, 5, 7]),
+      noDataValue: null,
+    });
+
+    expect(Object.keys(aggregation.cellsById)).toHaveLength(4);
+    expect(Object.values(aggregation.cellsById).map((cell) => cell.meanValue)).toEqual([1, 3, 5, 7]);
+  });
+
+  it('rewrites geographic raster bands by metric grid cells instead of collapsing everything into one degree cell', () => {
+    const geographicFenceRings: FenceRings = [
+      [
+        [119.420001, 36.510001],
+        [119.420901, 36.510001],
+        [119.420901, 36.510601],
+        [119.420001, 36.510601],
+        [119.420001, 36.510001],
+      ],
+    ];
+    const metricTransform = createMetricTransform({
+      crsCode: 'EPSG:4326',
+      boundingBox: [119.420001, 36.510001, 119.420901, 36.510601],
+    });
+    const aggregation = aggregateGridCellsFromRasterWindow({
+      window: [0, 0, 2, 2],
+      width: 2,
+      height: 2,
+      origin: [119.420001, 36.510601, 0],
+      resolution: [0.00045, -0.0003, 0],
+      fenceRings: geographicFenceRings,
+      metricTransform,
+      gridCellWidth: 10,
+      gridCellHeight: 10,
+      band: new Float32Array([1, 3, 5, 7]),
+      noDataValue: null,
+    });
+
+    const result = applyGridAggregationToBands({
+      bands: [new Float32Array([1, 3, 5, 7])],
+      aggregation,
+      width: 2,
+      height: 2,
+      window: [0, 0, 2, 2],
+      origin: [119.420001, 36.510601, 0],
+      resolution: [0.00045, -0.0003, 0],
+      fenceRings: geographicFenceRings,
+      metricTransform,
+      gridCellWidth: 10,
+      gridCellHeight: 10,
+      noDataValue: -9999,
+    });
+
+    expect(Array.from(result.bands[0])).toEqual([1, 3, 5, 7]);
+    expect(result.maskedPixelCount).toBe(0);
   });
 });
