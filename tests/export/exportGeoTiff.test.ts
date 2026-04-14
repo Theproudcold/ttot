@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fromArrayBuffer } from 'geotiff';
 
 const { fromArrayBufferMock, readBlobBufferMock, writeGeoTiffBufferMock } = vi.hoisted(() => ({
   fromArrayBufferMock: vi.fn(),
@@ -310,6 +311,85 @@ describe('exportFenceGeoTiff', () => {
         modelPixelScale: [0.00045, 0.0003, 0],
       }),
     );
+  });
+
+  it('writes prescription values as a readable extra sample band', async () => {
+    const file = new File(['demo'], 'prescription.tif', { type: 'image/tiff' });
+    const image = {
+      getWidth: () => 2,
+      getHeight: () => 2,
+      getOrigin: () => [100, 200, 0] as [number, number, number],
+      getResolution: () => [10, -10, 0] as [number, number, number],
+      getBitsPerSample: () => 32,
+      getSampleFormat: () => 3,
+      getSamplesPerPixel: () => 1,
+      getGDALNoData: () => null,
+      getFileDirectory: () => ({
+        PhotometricInterpretation: 1,
+        ModelPixelScale: [10, 10, 0],
+        GeoKeyDirectory: new Uint16Array([1, 1, 0, 1, 3072, 0, 1, 4549]),
+      }),
+      readRasters: vi.fn().mockResolvedValue([new Float32Array([0.1, 0.35, 0.55, 0.8])]),
+    };
+
+    readBlobBufferMock.mockResolvedValue(new Uint8Array([1, 2, 3]).buffer);
+    fromArrayBufferMock.mockResolvedValue({
+      getImage: vi.fn().mockResolvedValue(image),
+    });
+    writeGeoTiffBufferMock.mockReturnValue(new Uint8Array([7, 8, 9]).buffer);
+
+    const result = await exportFenceGeoTiff({
+      file,
+      gridCellSize: 10,
+      fence: {
+        ...fence,
+        summary: {
+          ...fence.summary,
+          bbox: [100, 180, 120, 200],
+        },
+        geometry: {
+          ...fence.geometry,
+          coordinates: [
+            [
+              [100, 200],
+              [120, 200],
+              [120, 180],
+              [100, 180],
+              [100, 200],
+            ],
+          ],
+        },
+      },
+      activeClassificationLayer: {
+        id: 'rules',
+        label: '变量施肥',
+        mode: 'rules',
+        noDataColor: '#00000000',
+        gradientStops: [],
+        rules: [
+          { min: 0, max: 0.2, color: '#111111', label: 'low', applicationRate: 50 },
+          { min: 0.2, max: 0.6, color: '#222222', label: 'mid', applicationRate: 80 },
+          { min: 0.6, max: null, color: '#333333', label: 'high', applicationRate: 120 },
+        ],
+      },
+    });
+
+    expect(writeGeoTiffBufferMock).toHaveBeenCalledTimes(1);
+    const firstCall = vi.mocked(writeGeoTiffBufferMock).mock.calls[0]?.[0];
+    expect(firstCall?.samplesPerPixel).toBe(2);
+    expect(firstCall?.bitsPerSample).toEqual([32, 32]);
+    expect(firstCall?.sampleFormat).toEqual([3, 3]);
+    expect(firstCall?.bands).toHaveLength(2);
+    expect(Array.from(firstCall?.bands[0] ?? [])).toEqual(
+      expect.arrayContaining([
+        expect.closeTo(0.1, 6),
+        expect.closeTo(0.35, 6),
+        expect.closeTo(0.55, 6),
+        expect.closeTo(0.8, 6),
+      ]),
+    );
+    expect(Array.from(firstCall?.bands[1] ?? [])).toEqual([50, 80, 80, 120]);
+    expect(result.blob).toBeInstanceOf(Blob);
   });
 });
 

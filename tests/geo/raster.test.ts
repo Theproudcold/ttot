@@ -26,6 +26,7 @@ import {
   getCrsCodeFromGeoKeys,
   getSampleRanges,
   loadRasterMetadata,
+  loadRasterPreview,
 } from '@/shared/geo/raster';
 
 beforeEach(() => {
@@ -355,6 +356,95 @@ describe('loadRasterMetadata', () => {
     globalThis.FileReader = originalFileReader;
     globalThis.requestAnimationFrame = originalRequestAnimationFrame;
     globalThis.cancelAnimationFrame = originalCancelAnimationFrame;
+  });
+});
+
+describe('loadRasterPreview', () => {
+  it('keeps two-band sample data for import while rendering preview from the primary band', async () => {
+    const originalCreateElement = document.createElement.bind(document);
+    const putImageData = vi.fn();
+    const createImageData = vi.fn((width: number, height: number) => ({
+      data: new Uint8ClampedArray(width * height * 4),
+      width,
+      height,
+    }));
+    const toDataURL = vi.fn(() => 'data:image/png;base64,preview');
+    const getContext = vi.fn(() => ({
+      createImageData,
+      putImageData,
+    }));
+    vi.spyOn(document, 'createElement').mockImplementation(((tagName: string) => {
+      if (tagName === 'canvas') {
+        return {
+          width: 0,
+          height: 0,
+          getContext,
+          toDataURL,
+        } as unknown as HTMLCanvasElement;
+      }
+
+      return originalCreateElement(tagName);
+    }) as typeof document.createElement);
+
+    const readRasters = vi.fn().mockResolvedValue(new Float32Array([
+      0.1, 50,
+      0.35, 80,
+      0.55, 80,
+      0.8, 120,
+    ]));
+    fromArrayBufferMock.mockResolvedValue({
+      getImage: vi.fn().mockResolvedValue({
+        getWidth: () => 2,
+        getHeight: () => 2,
+        getSamplesPerPixel: () => 2,
+        getGDALNoData: () => null,
+        readRasters,
+      }),
+    });
+
+    const file = Object.assign(new Blob(['fake'], { type: 'image/tiff' }), {
+      name: 'prescription.tif',
+      arrayBuffer: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]).buffer),
+    }) as unknown as File;
+
+    const preview = await loadRasterPreview(file);
+
+    expect(readRasters).toHaveBeenCalledWith({
+      width: 2,
+      height: 2,
+      interleave: true,
+      samples: [0, 1],
+      fillValue: Number.NaN,
+    });
+    expect(preview.url).toBe('data:image/png;base64,preview');
+    expect(preview.sampleBandCount).toBe(2);
+    expect(Array.from(preview.sampleData ?? [])).toEqual(
+      expect.arrayContaining([
+        expect.closeTo(0.1, 6),
+        50,
+        expect.closeTo(0.35, 6),
+        80,
+        expect.closeTo(0.55, 6),
+        80,
+        expect.closeTo(0.8, 6),
+        120,
+      ]),
+    );
+    expect(preview.sampleRanges?.[0]?.min).toBeCloseTo(0.1, 6);
+    expect(preview.sampleRanges?.[0]?.max).toBeCloseTo(0.8, 6);
+    expect(preview.sampleRanges?.[1]).toEqual({
+      min: 50,
+      max: 120,
+    });
+    expect(putImageData).toHaveBeenCalledTimes(1);
+    expect(putImageData.mock.calls[0]?.[0].data).toEqual(
+      new Uint8ClampedArray([
+        0, 0, 0, 255,
+        91, 91, 91, 255,
+        164, 164, 164, 255,
+        255, 255, 255, 255,
+      ]),
+    );
   });
 });
 

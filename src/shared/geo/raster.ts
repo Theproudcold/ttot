@@ -508,6 +508,25 @@ export function buildPreviewRgba(
   return rgba;
 }
 
+function extractInterleavedBand(
+  samples: ArrayLike<number>,
+  bandCount: number,
+  bandIndex: number,
+): Float32Array {
+  if (bandCount <= 1) {
+    return Float32Array.from(samples as ArrayLike<number>);
+  }
+
+  const pixelCount = Math.floor(samples.length / bandCount);
+  const extracted = new Float32Array(pixelCount);
+
+  for (let pixelIndex = 0; pixelIndex < pixelCount; pixelIndex += 1) {
+    extracted[pixelIndex] = samples[pixelIndex * bandCount + bandIndex] ?? Number.NaN;
+  }
+
+  return extracted;
+}
+
 function getClassificationColor(index: number, total: number, colors: string[]): string {
   if (total <= 1) {
     return colors.at(Math.floor(colors.length / 2)) ?? colors[0] ?? '#777777';
@@ -870,22 +889,24 @@ export async function loadRasterPreview(
   const image = await tiff.getImage();
   const noDataValue = normalizeNoDataValue(image.getGDALNoData?.() ?? image.fileDirectory?.GDAL_NODATA);
   const previewSize = calculatePreviewDimensions(image.getWidth(), image.getHeight());
-  const bandCount = image.getSamplesPerPixel() >= 3 ? 3 : 1;
+  const bandCount = Math.min(3, Math.max(1, image.getSamplesPerPixel()));
   const samples = await image.readRasters({
     width: previewSize.width,
     height: previewSize.height,
     interleave: true,
-    samples: bandCount === 3 ? [0, 1, 2] : [0],
+    samples: Array.from({ length: bandCount }, (_, index) => index),
     fillValue: noDataValue ?? Number.NaN,
   });
+  const previewSamples =
+    bandCount === 2 ? extractInterleavedBand(samples as ArrayLike<number>, bandCount, 0) : (samples as ArrayLike<number>);
 
   onProgress?.(88, '正在合成预览图');
   await waitForNextPaint();
   const rgba = buildPreviewRgba(
-    samples as ArrayLike<number>,
+    previewSamples,
     previewSize.width,
     previewSize.height,
-    bandCount,
+    bandCount === 2 ? 1 : bandCount,
     noDataValue,
   );
 
