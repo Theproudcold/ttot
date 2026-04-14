@@ -44,12 +44,14 @@ function buildWindowOrigin(
   return [originX + startCol * resolutionX, originY + startRow * resolutionY, originZ];
 }
 
-function toBlobPart(buffer: ArrayBuffer | ArrayBufferView): ArrayBuffer | Uint8Array {
+function toBlobPart(buffer: ArrayBuffer | ArrayBufferView): BlobPart {
   if (buffer instanceof ArrayBuffer) {
     return buffer;
   }
 
-  return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  const copied = new Uint8Array(buffer.byteLength);
+  copied.set(new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength));
+  return copied;
 }
 
 export async function exportFenceGeoTiff(input: {
