@@ -1,6 +1,6 @@
 import { fromArrayBuffer } from 'geotiff';
 
-import { isLikelyProjectedCrs } from '@/shared/geo/crs';
+import { createMetricTransform, isLikelyProjectedCrs } from '@/shared/geo/crs';
 import type {
   RasterClassificationLayer,
   RasterClassificationBreak,
@@ -95,6 +95,11 @@ export function getCrsCodeFromGeoKeys(geoKeys: RasterGeoKeys): string {
 export function buildRasterMetadata(raw: RawRasterMetadata): RasterMetadata {
   const crsCode = getCrsCodeFromGeoKeys(raw.geoKeys);
   const isProjected = crsCode !== 'UNKNOWN' ? isLikelyProjectedCrs(crsCode) : false;
+  const cellSizeUnit = crsCode === 'UNKNOWN' ? 'unknown' : isProjected ? 'm' : 'degree';
+  const metricTransform = createMetricTransform({
+    crsCode,
+    boundingBox: raw.boundingBox,
+  });
 
   return {
     sourceUrl: raw.sourceUrl,
@@ -103,12 +108,17 @@ export function buildRasterMetadata(raw: RawRasterMetadata): RasterMetadata {
     height: raw.height,
     samplesPerPixel: raw.samplesPerPixel,
     boundingBox: raw.boundingBox,
+    coordinateDisplayMode: metricTransform.coordinateDisplayMode,
+    metricExtent: metricTransform.metricExtent,
+    metricWidth: metricTransform.metricWidth,
+    metricHeight: metricTransform.metricHeight,
+    metricTransform,
     origin: raw.origin,
     resolution: raw.resolution,
     cellSize: {
       x: Math.abs(raw.resolution[0] ?? 0),
       y: Math.abs(raw.resolution[1] ?? 0),
-      unit: isProjected ? 'm' : 'degree',
+      unit: cellSizeUnit,
     },
     crsCode,
     crsName: raw.geoKeys.GTCitationGeoKey || crsCode,

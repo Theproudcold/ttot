@@ -34,6 +34,23 @@ describe('createMetricTransform', () => {
     expect(displayPoint).not.toBe(sourcePoint);
   });
 
+  it('uses an explicit unknown display mode for unknown CRS values', () => {
+    const transform = createMetricTransform({
+      crsCode: 'UNKNOWN',
+      boundingBox: [10, 20, 11, 21],
+    });
+
+    expect(transform.coordinateDisplayMode).toBe('unknown');
+    expect(transform.metricExtent).toEqual({
+      minX: 10,
+      minY: 20,
+      maxX: 11,
+      maxY: 21,
+    });
+    expect(transform.toMetric([10.25, 20.75])).toEqual([10.25, 20.75]);
+    expect(transform.fromMetric([10.25, 20.75])).toEqual([10.25, 20.75]);
+  });
+
   it('converts geographic coordinates into local metric coordinates', () => {
     const transform = createMetricTransform({
       crsCode: 'EPSG:4490',

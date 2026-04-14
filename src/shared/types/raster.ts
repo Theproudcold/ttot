@@ -1,3 +1,5 @@
+import type { CoordinateDisplayMode, MetricExtent, MetricTransform } from '@/shared/geo/crs';
+
 export type RasterBoundingBox = [number, number, number, number];
 export type RasterOrigin = [number, number, number?];
 export type RasterResolution = [number, number, number?];
@@ -118,6 +120,11 @@ export type RasterMetadata = {
   height: number;
   samplesPerPixel: number;
   boundingBox: RasterBoundingBox;
+  coordinateDisplayMode: CoordinateDisplayMode;
+  metricExtent: MetricExtent;
+  metricWidth: number;
+  metricHeight: number;
+  metricTransform: MetricTransform;
   origin: RasterOrigin;
   resolution: RasterResolution;
   cellSize: RasterCellSize;

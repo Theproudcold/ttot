@@ -10,7 +10,7 @@ const GEOGRAPHIC_CRS = new Set([
   'HTTP://WWW.OPENGIS.NET/DEF/CRS/OGC/1.3/CRS84',
 ]);
 
-export type CoordinateDisplayMode = 'projected' | 'geographic';
+export type CoordinateDisplayMode = 'projected' | 'geographic' | 'unknown';
 
 export type MetricTransform = {
   coordinateDisplayMode: CoordinateDisplayMode;
@@ -38,20 +38,12 @@ export function createMetricTransform(input: {
   const [minX, minY, maxX, maxY] = boundingBox;
   validateBoundingBox(boundingBox);
 
+  if (isUnknownCrsCode(crsCode)) {
+    return createIdentityMetricTransform('unknown', boundingBox);
+  }
+
   if (isLikelyProjectedCrs(crsCode)) {
-    return {
-      coordinateDisplayMode: 'projected',
-      metricExtent: {
-        minX,
-        minY,
-        maxX,
-        maxY,
-      },
-      metricWidth: Math.max(0, maxX - minX),
-      metricHeight: Math.max(0, maxY - minY),
-      toMetric: ([x, y]) => [x, y],
-      fromMetric: ([x, y]) => [x, y],
-    };
+    return createIdentityMetricTransform('projected', boundingBox);
   }
 
   validateGeographicBoundingBox(boundingBox);
@@ -119,6 +111,10 @@ function normalizeCrsCode(crsCode: string): string {
   return crsCode.trim().toUpperCase();
 }
 
+function isUnknownCrsCode(crsCode: string): boolean {
+  return normalizeCrsCode(crsCode) === 'UNKNOWN';
+}
+
 function isKnownGeographicCrs(crsCode: string): boolean {
   const normalizedCrsCode = normalizeCrsCode(crsCode);
   if (GEOGRAPHIC_CRS.has(normalizedCrsCode)) {
@@ -157,4 +153,23 @@ function validateGeographicBoundingBox([minLon, minLat, maxLon, maxLat]: [number
   if (minLon < -180 || maxLon > 180) {
     throw new Error('geographic bounding box longitude must be within [-180, 180]');
   }
+}
+
+function createIdentityMetricTransform(
+  coordinateDisplayMode: CoordinateDisplayMode,
+  [minX, minY, maxX, maxY]: [number, number, number, number],
+): MetricTransform {
+  return {
+    coordinateDisplayMode,
+    metricExtent: {
+      minX,
+      minY,
+      maxX,
+      maxY,
+    },
+    metricWidth: Math.max(0, maxX - minX),
+    metricHeight: Math.max(0, maxY - minY),
+    toMetric: ([x, y]) => [x, y],
+    fromMetric: ([x, y]) => [x, y],
+  };
 }

@@ -57,7 +57,7 @@ describe('getCrsCodeFromGeoKeys', () => {
 });
 
 describe('buildRasterMetadata', () => {
-  it('normalizes raw geotiff metadata into app metadata', () => {
+  it('builds projected raster metadata with metric extent equal to the source extent', () => {
     const metadata = buildRasterMetadata({
       sourceUrl: '/assets/test2.tif',
       fileName: 'test2.tif',
@@ -81,12 +81,109 @@ describe('buildRasterMetadata', () => {
       crsName: 'CGCS2000 / 3-degree Gauss-Kruger CM 120E',
       isProjected: true,
       samplesPerPixel: 1,
+      coordinateDisplayMode: 'projected',
       cellSize: {
         x: 0.0147,
         y: 0.0147,
         unit: 'm',
       },
+      metricExtent: {
+        minX: 447934.5768945037,
+        minY: 4041573.0550815426,
+        maxX: 448017.5877945037,
+        maxY: 4041619.7863815427,
+      },
     });
+
+    expect(metadata.metricWidth).toBeCloseTo(83.0109, 4);
+    expect(metadata.metricHeight).toBeCloseTo(46.7313, 4);
+    expect(metadata.boundingBox).toEqual([
+      447934.5768945037,
+      4041573.0550815426,
+      448017.5877945037,
+      4041619.7863815427,
+    ]);
+    expect(metadata.metricTransform.toMetric([10, 20])).toEqual([10, 20]);
+    expect(metadata.metricTransform.fromMetric([30, 40])).toEqual([30, 40]);
+  });
+
+  it('builds geographic raster metadata with degree cell size and meter-based metric dimensions', () => {
+    const metadata = buildRasterMetadata({
+      fileName: 'gps-ndvi.tif',
+      width: 2250,
+      height: 1500,
+      boundingBox: [119.420001, 36.510001, 119.420901, 36.510601],
+      origin: [119.420001, 36.510601, 0],
+      resolution: [0.0000004, -0.0000004, 0],
+      geoKeys: {
+        GeographicTypeGeoKey: 4326,
+      },
+      samplesPerPixel: 1,
+    });
+
+    expect(metadata.crsCode).toBe('EPSG:4326');
+    expect(metadata.isProjected).toBe(false);
+    expect(metadata.coordinateDisplayMode).toBe('geographic');
+    expect(metadata.cellSize).toEqual({
+      x: 0.0000004,
+      y: 0.0000004,
+      unit: 'degree',
+    });
+    expect(metadata.metricExtent.minX).toBeCloseTo(-40.262864, 3);
+    expect(metadata.metricExtent.minY).toBeCloseTo(-33.395847, 3);
+    expect(metadata.metricExtent.maxX).toBeCloseTo(40.262864, 3);
+    expect(metadata.metricExtent.maxY).toBeCloseTo(33.395847, 3);
+    expect(metadata.metricWidth).toBeCloseTo(80.525727, 3);
+    expect(metadata.metricHeight).toBeCloseTo(66.791694, 3);
+    expect(metadata.boundingBox).toEqual([119.420001, 36.510001, 119.420901, 36.510601]);
+
+    const metricPoint = metadata.metricTransform.toMetric([119.420451, 36.510301]);
+    expect(metricPoint[0]).toBeCloseTo(0, 6);
+    expect(metricPoint[1]).toBeCloseTo(0, 6);
+  });
+
+  it('keeps unknown CRS metadata on an explicit unknown-unit fallback', () => {
+    const metadata = buildRasterMetadata({
+      fileName: 'unknown.tif',
+      width: 10,
+      height: 10,
+      boundingBox: [10, 20, 11, 21],
+      origin: [10, 21, 0],
+      resolution: [0.5, -0.5, 0],
+      geoKeys: {},
+      samplesPerPixel: 1,
+    });
+
+    expect(metadata.crsCode).toBe('UNKNOWN');
+    expect(metadata.crsName).toBe('UNKNOWN');
+    expect(metadata.isProjected).toBe(false);
+    expect(metadata.cellSize.unit).toBe('unknown');
+    expect(metadata.coordinateDisplayMode).toBe('unknown');
+    expect(metadata.boundingBox).toEqual([10, 20, 11, 21]);
+    expect(metadata.metricExtent).toEqual({
+      minX: 10,
+      minY: 20,
+      maxX: 11,
+      maxY: 21,
+    });
+    expect(metadata.metricTransform.toMetric([10.25, 20.75])).toEqual([10.25, 20.75]);
+  });
+
+  it('surfaces geographic metric transform errors during metadata construction', () => {
+    expect(() =>
+      buildRasterMetadata({
+        fileName: 'too-large-gps.tif',
+        width: 10,
+        height: 10,
+        boundingBox: [100, 30, 102, 31],
+        origin: [100, 31, 0],
+        resolution: [0.0002, -0.0002, 0],
+        geoKeys: {
+          GeographicTypeGeoKey: 4326,
+        },
+        samplesPerPixel: 1,
+      }),
+    ).toThrow('geographic bounding box exceeds local metric transform limit');
   });
 });
 
