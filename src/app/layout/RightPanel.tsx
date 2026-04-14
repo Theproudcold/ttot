@@ -57,12 +57,8 @@ export function RightPanel() {
   const hoverInfo = useMapUiStore((state) => state.hoverInfo);
   const setLayerVisibility = useMapUiStore((state) => state.setLayerVisibility);
   const fence = useFenceStore((state) => state.fence);
-  const validationMessage = useFenceStore((state) => state.validationMessage);
   const cellSize = useGridStore((state) => state.cellSize);
   const gridSummary = useGridStore((state) => state.summary);
-  const warnings = [validationMessage, gridSummary?.warning].filter(
-    (value): value is string => Boolean(value),
-  );
 
   return (
     <aside className="panel" aria-label="right-panel">
@@ -110,12 +106,7 @@ export function RightPanel() {
         </dl>
       </div>
 
-      <h3>告警提示</h3>
-      <div className="card">
-        {warnings.length === 0
-          ? '当前没有额外告警，网格预览和围栏状态都还算老实。'
-          : warnings.map((warning) => <p key={warning}>{warning}</p>)}
-      </div>
+
 
       <h3>图层</h3>
       <div className="card">
@@ -124,6 +115,7 @@ export function RightPanel() {
           <input
             aria-label="切换影像图层"
             type="checkbox"
+            className="modern-toggle"
             checked={layers.raster}
             onChange={(event) => setLayerVisibility('raster', event.target.checked)}
           />
@@ -133,6 +125,7 @@ export function RightPanel() {
           <input
             aria-label="切换围栏图层"
             type="checkbox"
+            className="modern-toggle"
             checked={layers.fence}
             onChange={(event) => setLayerVisibility('fence', event.target.checked)}
           />
@@ -142,6 +135,7 @@ export function RightPanel() {
           <input
             aria-label="切换网格图层"
             type="checkbox"
+            className="modern-toggle"
             checked={layers.grid}
             onChange={(event) => setLayerVisibility('grid', event.target.checked)}
           />

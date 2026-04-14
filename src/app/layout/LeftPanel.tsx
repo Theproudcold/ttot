@@ -96,9 +96,10 @@ function updateRuleTuple(
 export function LeftPanel() {
   const [isExportingGeoTiff, setIsExportingGeoTiff] = useState(false);
   const [geoTiffExportMessage, setGeoTiffExportMessage] = useState<string | null>(null);
-  const sourceFile = useRasterStore((state) => state.sourceFile);
   const sourceLabel = useRasterStore((state) => state.sourceLabel);
+  const sourceFile = useRasterStore((state) => state.sourceFile);
   const selectFile = useRasterStore((state) => state.selectFile);
+  const resetRaster = useRasterStore((state) => state.reset);
   const resetMapUi = useMapUiStore((state) => state.reset);
   const classificationLayers = useMapUiStore((state) => state.classificationLayers);
   const activeClassificationLayerId = useMapUiStore((state) => state.activeClassificationLayerId);
@@ -215,27 +216,50 @@ export function LeftPanel() {
     <aside className="panel" aria-label="left-panel">
       <h2>文件信息</h2>
       <div className="card">
-        <label className="field-label" htmlFor="raster-file-input">
-          选择 TIFF 文件
-        </label>
-        <input
-          id="raster-file-input"
-          className="field-input"
-          type="file"
-          accept=".tif,.tiff,image/tiff"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (!file) {
-              return;
-            }
+        <div className="file-select-zone">
+          {!sourceFile ? (
+            <>
+              <label className="toolbar-button" htmlFor="raster-file-input" style={{ display: 'inline-block', textAlign: 'center', width: '100%' }}>
+                选择 TIFF 文件
+              </label>
+              <input
+                id="raster-file-input"
+                className="visually-hidden"
+                type="file"
+                accept=".tif,.tiff,image/tiff"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) {
+                    return;
+                  }
 
-            resetFence();
-            resetGrid();
-            resetMapUi();
-            setGeoTiffExportMessage(null);
-            selectFile(file);
-          }}
-        />
+                  resetFence();
+                  resetGrid();
+                  resetMapUi();
+                  setGeoTiffExportMessage(null);
+                  selectFile(file);
+                }}
+              />
+            </>
+          ) : (
+            <div className="file-selected-row">
+              <span className="file-selected-name" title={sourceLabel}>{sourceLabel}</span>
+              <button
+                type="button"
+                className="toolbar-button toolbar-button--ghost"
+                onClick={() => {
+                  resetRaster();
+                  resetFence();
+                  resetGrid();
+                  resetMapUi();
+                  setGeoTiffExportMessage(null);
+                }}
+              >
+                移除
+              </button>
+            </div>
+          )}
+        </div>
         <dl className="metric-list">
           <div className="metric-item">
             <dt className="metric-label">文件名</dt>
@@ -426,6 +450,7 @@ export function LeftPanel() {
                     <label className="classification-item__toggle">
                       <input
                         type="checkbox"
+                        className="modern-toggle"
                         checked={isVisible}
                         onChange={() => {
                           toggleClassificationLayerVisibility(layer.id);
