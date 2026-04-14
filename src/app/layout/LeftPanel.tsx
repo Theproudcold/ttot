@@ -1,8 +1,11 @@
+import { useState } from 'react';
+
 import {
   createFenceGeoJson,
   createGridGeoJson,
   downloadGeoJson,
 } from '@/features/export/exportGeoJson';
+import { downloadExportedGeoTiff, exportFenceGeoTiff } from '@/features/export/exportGeoTiff';
 import { useFenceStore } from '@/features/fence/fenceStore';
 import { useGridStore } from '@/features/grid/gridStore';
 import { useMapUiStore } from '@/features/map/mapUiStore';
@@ -91,6 +94,9 @@ function updateRuleTuple(
 }
 
 export function LeftPanel() {
+  const [isExportingGeoTiff, setIsExportingGeoTiff] = useState(false);
+  const [geoTiffExportMessage, setGeoTiffExportMessage] = useState<string | null>(null);
+  const sourceFile = useRasterStore((state) => state.sourceFile);
   const sourceLabel = useRasterStore((state) => state.sourceLabel);
   const selectFile = useRasterStore((state) => state.selectFile);
   const resetMapUi = useMapUiStore((state) => state.reset);
@@ -128,6 +134,29 @@ export function LeftPanel() {
     classificationLayers.find((layer) => layer.id === activeClassificationLayerId) ??
     classificationLayers[0] ??
     null;
+
+  const handleGeoTiffExport = async () => {
+    if (!sourceFile || !fence || isExportingGeoTiff) {
+      return;
+    }
+
+    setIsExportingGeoTiff(true);
+    setGeoTiffExportMessage(null);
+
+    try {
+      const { blob, filename } = await exportFenceGeoTiff({
+        file: sourceFile,
+        fence,
+      });
+      await downloadExportedGeoTiff(blob, filename);
+      setGeoTiffExportMessage('GeoTIFF 导出完成');
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : '请稍后重试';
+      setGeoTiffExportMessage(`GeoTIFF 导出失败：${detail}`);
+    } finally {
+      setIsExportingGeoTiff(false);
+    }
+  };
 
   const createClassificationLayer = () => {
     const nextLayer = buildNewRulesClassificationLayer(
@@ -203,6 +232,7 @@ export function LeftPanel() {
             resetFence();
             resetGrid();
             resetMapUi();
+            setGeoTiffExportMessage(null);
             selectFile(file);
           }}
         />
@@ -341,7 +371,18 @@ export function LeftPanel() {
           >
             导出网格
           </button>
+          <button
+            type="button"
+            className="toolbar-button toolbar-button--ghost"
+            disabled={!sourceFile || !fence || isExportingGeoTiff}
+            onClick={() => {
+              void handleGeoTiffExport();
+            }}
+          >
+            {isExportingGeoTiff ? '正在导出 GeoTIFF' : '导出 GeoTIFF'}
+          </button>
         </div>
+        {geoTiffExportMessage ? <p className="toolbar-hint">{geoTiffExportMessage}</p> : null}
       </div>
 
       <h3>分类方案</h3>

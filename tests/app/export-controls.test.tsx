@@ -1,9 +1,11 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { LeftPanel } from '@/app/layout/LeftPanel';
+import { downloadExportedGeoTiff, exportFenceGeoTiff } from '@/features/export/exportGeoTiff';
 import { useFenceStore } from '@/features/fence/fenceStore';
 import { useGridStore } from '@/features/grid/gridStore';
+import { useRasterStore } from '@/features/map/rasterStore';
 
 const { downloadGeoJson } = vi.hoisted(() => ({
   downloadGeoJson: vi.fn(),
@@ -20,13 +22,21 @@ vi.mock('@/features/export/exportGeoJson', async () => {
   };
 });
 
+vi.mock('@/features/export/exportGeoTiff', () => ({
+  exportFenceGeoTiff: vi.fn(),
+  downloadExportedGeoTiff: vi.fn(),
+}));
+
 describe('ExportControls', () => {
   afterEach(() => {
     act(() => {
       useFenceStore.getState().reset();
       useGridStore.getState().reset();
+      useRasterStore.getState().reset();
     });
     downloadGeoJson.mockReset();
+    vi.mocked(exportFenceGeoTiff).mockReset();
+    vi.mocked(downloadExportedGeoTiff).mockReset();
   });
 
   it('disables export buttons when no preview data exists', () => {
@@ -34,6 +44,7 @@ describe('ExportControls', () => {
 
     expect(screen.getByRole('button', { name: '导出围栏' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '导出网格' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '导出 GeoTIFF' })).toBeDisabled();
   });
 
   it('enables export buttons and triggers grid export when data exists', () => {
@@ -86,5 +97,65 @@ describe('ExportControls', () => {
     fireEvent.click(exportGridButton);
 
     expect(downloadGeoJson).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows exporting state while geotiff export is pending', () => {
+    vi.mocked(exportFenceGeoTiff).mockReturnValue(new Promise(() => undefined));
+
+    act(() => {
+      useRasterStore.getState().selectFile(new File(['demo'], 'test2.tif', { type: 'image/tiff' }));
+      useFenceStore.getState().setFence([
+        [
+          [0, 0],
+          [10, 0],
+          [10, 20],
+          [0, 20],
+          [0, 0],
+        ],
+      ]);
+    });
+
+    render(<LeftPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: '导出 GeoTIFF' }));
+
+    expect(screen.getByRole('button', { name: '正在导出 GeoTIFF' })).toBeDisabled();
+  });
+
+  it('shows success and failure messages for geotiff export', async () => {
+    act(() => {
+      useRasterStore.getState().selectFile(new File(['demo'], 'test2.tif', { type: 'image/tiff' }));
+      useFenceStore.getState().setFence([
+        [
+          [0, 0],
+          [10, 0],
+          [10, 20],
+          [0, 20],
+          [0, 0],
+        ],
+      ]);
+    });
+
+    vi.mocked(exportFenceGeoTiff).mockResolvedValueOnce({
+      blob: new Blob(['demo'], { type: 'image/tiff' }),
+      filename: 'test2-clipped.tif',
+    });
+    vi.mocked(downloadExportedGeoTiff).mockResolvedValueOnce();
+
+    render(<LeftPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: '导出 GeoTIFF' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('GeoTIFF 导出完成')).toBeInTheDocument();
+    });
+
+    vi.mocked(exportFenceGeoTiff).mockRejectedValueOnce(new Error('围栏超出影像范围'));
+
+    fireEvent.click(screen.getByRole('button', { name: '导出 GeoTIFF' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('GeoTIFF 导出失败：围栏超出影像范围')).toBeInTheDocument();
+    });
   });
 });
