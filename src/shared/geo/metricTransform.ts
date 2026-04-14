@@ -1,6 +1,14 @@
 const EARTH_RADIUS_METERS = 6378137;
+const MAX_LOCAL_METRIC_DIMENSION_METERS = 100000;
 const MIN_COSINE_MAGNITUDE = 1e-6;
-const GEOGRAPHIC_CRS = new Set(['EPSG:4326', 'EPSG:4490', 'EPSG:4269', 'CRS:84', 'OGC:CRS84']);
+const GEOGRAPHIC_CRS = new Set([
+  'EPSG:4326',
+  'EPSG:4490',
+  'EPSG:4269',
+  'CRS:84',
+  'OGC:CRS84',
+  'HTTP://WWW.OPENGIS.NET/DEF/CRS/OGC/1.3/CRS84',
+]);
 
 export type CoordinateDisplayMode = 'projected' | 'geographic';
 
@@ -41,8 +49,8 @@ export function createMetricTransform(input: {
       },
       metricWidth: Math.max(0, maxX - minX),
       metricHeight: Math.max(0, maxY - minY),
-      toMetric: (point) => point,
-      fromMetric: (point) => point,
+      toMetric: ([x, y]) => [x, y],
+      fromMetric: ([x, y]) => [x, y],
     };
   }
 
@@ -82,12 +90,18 @@ export function createMetricTransform(input: {
     maxX: Math.max(...metricCorners.map(([x]) => x)),
     maxY: Math.max(...metricCorners.map(([, y]) => y)),
   };
+  const metricWidth = Math.max(0, metricExtent.maxX - metricExtent.minX);
+  const metricHeight = Math.max(0, metricExtent.maxY - metricExtent.minY);
+
+  if (metricWidth > MAX_LOCAL_METRIC_DIMENSION_METERS || metricHeight > MAX_LOCAL_METRIC_DIMENSION_METERS) {
+    throw new Error('geographic bounding box exceeds local metric transform limit');
+  }
 
   return {
     coordinateDisplayMode: 'geographic',
     metricExtent,
-    metricWidth: Math.max(0, metricExtent.maxX - metricExtent.minX),
-    metricHeight: Math.max(0, metricExtent.maxY - metricExtent.minY),
+    metricWidth,
+    metricHeight,
     toMetric,
     fromMetric,
   };

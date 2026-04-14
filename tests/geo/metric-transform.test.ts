@@ -8,12 +8,12 @@ describe('isLikelyProjectedCrs', () => {
     expect(isLikelyProjectedCrs('EPSG:4490')).toBe(false);
     expect(isLikelyProjectedCrs('epsg:4269')).toBe(false);
     expect(isLikelyProjectedCrs('crs:84')).toBe(false);
+    expect(isLikelyProjectedCrs('http://www.opengis.net/def/crs/OGC/1.3/CRS84')).toBe(false);
   });
 
   it('keeps unknown or non-geographic CRS values on the projected side', () => {
     expect(isLikelyProjectedCrs('EPSG:4087')).toBe(true);
     expect(isLikelyProjectedCrs('EPSG:4326foo')).toBe(true);
-    expect(isLikelyProjectedCrs('http://www.opengis.net/def/crs/OGC/1.3/CRS84')).toBe(true);
   });
 });
 
@@ -23,10 +23,15 @@ describe('createMetricTransform', () => {
       crsCode: 'EPSG:4549',
       boundingBox: [447934.57, 4041573.05, 448017.58, 4041619.78],
     });
+    const sourcePoint: [number, number] = [10, 20];
+    const metricPoint = transform.toMetric(sourcePoint);
+    const displayPoint = transform.fromMetric(sourcePoint);
 
     expect(transform.coordinateDisplayMode).toBe('projected');
-    expect(transform.toMetric([10, 20])).toEqual([10, 20]);
-    expect(transform.fromMetric([10, 20])).toEqual([10, 20]);
+    expect(metricPoint).toEqual([10, 20]);
+    expect(displayPoint).toEqual([10, 20]);
+    expect(metricPoint).not.toBe(sourcePoint);
+    expect(displayPoint).not.toBe(sourcePoint);
   });
 
   it('converts geographic coordinates into local metric coordinates', () => {
@@ -43,6 +48,17 @@ describe('createMetricTransform', () => {
     expect(metricLeftBottom[1]).toBeCloseTo(-33.395847, 3);
     expect(metricRightTop[0]).toBeCloseTo(40.262864, 3);
     expect(metricRightTop[1]).toBeCloseTo(33.395847, 3);
+    expect(transform.metricWidth).toBeCloseTo(80.525727, 3);
+    expect(transform.metricHeight).toBeCloseTo(66.791694, 3);
+  });
+
+  it('supports standard CRS84 URI as geographic coordinates', () => {
+    const transform = createMetricTransform({
+      crsCode: 'http://www.opengis.net/def/crs/OGC/1.3/CRS84',
+      boundingBox: [119.420001, 36.510001, 119.420901, 36.510601],
+    });
+
+    expect(transform.coordinateDisplayMode).toBe('geographic');
     expect(transform.metricWidth).toBeCloseTo(80.525727, 3);
     expect(transform.metricHeight).toBeCloseTo(66.791694, 3);
   });
@@ -105,5 +121,14 @@ describe('createMetricTransform', () => {
     expect(transform.coordinateDisplayMode).toBe('projected');
     expect(transform.toMetric([1, 2])).toEqual([1, 2]);
     expect(transform.fromMetric([3, 4])).toEqual([3, 4]);
+  });
+
+  it('rejects geographic bounding boxes that exceed the local metric limit', () => {
+    expect(() =>
+      createMetricTransform({
+        crsCode: 'EPSG:4326',
+        boundingBox: [100, 30, 102, 31],
+      }),
+    ).toThrow('geographic bounding box exceeds local metric transform limit');
   });
 });
