@@ -9,6 +9,12 @@ describe('isLikelyProjectedCrs', () => {
     expect(isLikelyProjectedCrs('epsg:4269')).toBe(false);
     expect(isLikelyProjectedCrs('crs:84')).toBe(false);
   });
+
+  it('keeps unknown or non-geographic CRS values on the projected side', () => {
+    expect(isLikelyProjectedCrs('EPSG:4087')).toBe(true);
+    expect(isLikelyProjectedCrs('EPSG:4326foo')).toBe(true);
+    expect(isLikelyProjectedCrs('http://www.opengis.net/def/crs/OGC/1.3/CRS84')).toBe(true);
+  });
 });
 
 describe('createMetricTransform', () => {
@@ -79,5 +85,25 @@ describe('createMetricTransform', () => {
         boundingBox: [10, 89.999999, 10.0001, 90],
       }),
     ).toThrow('geographic metric transform is unstable near the poles');
+  });
+
+  it('rejects geographic bounding boxes outside valid latitude range', () => {
+    expect(() =>
+      createMetricTransform({
+        crsCode: 'EPSG:4326',
+        boundingBox: [119.42, -90.1, 119.421, -89.9],
+      }),
+    ).toThrow('geographic bounding box latitude must be within [-90, 90]');
+  });
+
+  it('treats dirty EPSG strings as projected instead of geographic', () => {
+    const transform = createMetricTransform({
+      crsCode: 'EPSG:4326foo',
+      boundingBox: [119.42, 36.51, 119.421, 36.511],
+    });
+
+    expect(transform.coordinateDisplayMode).toBe('projected');
+    expect(transform.toMetric([1, 2])).toEqual([1, 2]);
+    expect(transform.fromMetric([3, 4])).toEqual([3, 4]);
   });
 });

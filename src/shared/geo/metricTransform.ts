@@ -1,7 +1,6 @@
 const EARTH_RADIUS_METERS = 6378137;
 const MIN_COSINE_MAGNITUDE = 1e-6;
 const GEOGRAPHIC_CRS = new Set(['EPSG:4326', 'EPSG:4490', 'EPSG:4269', 'CRS:84', 'OGC:CRS84']);
-const PROJECTED_EPSG_OVERRIDES = new Set([3857, 4549]);
 
 export type CoordinateDisplayMode = 'projected' | 'geographic';
 
@@ -20,26 +19,7 @@ export type MetricTransform = {
 };
 
 export function isLikelyProjectedCrs(crsCode: string): boolean {
-  const normalizedCrsCode = normalizeCrsCode(crsCode);
-
-  if (GEOGRAPHIC_CRS.has(normalizedCrsCode)) {
-    return false;
-  }
-
-  const epsgCode = parseEpsgCode(normalizedCrsCode);
-  if (epsgCode === null) {
-    return true;
-  }
-
-  if (PROJECTED_EPSG_OVERRIDES.has(epsgCode)) {
-    return true;
-  }
-
-  if (epsgCode >= 4000 && epsgCode < 5000) {
-    return false;
-  }
-
-  return true;
+  return !isKnownGeographicCrs(crsCode);
 }
 
 export function createMetricTransform(input: {
@@ -65,6 +45,8 @@ export function createMetricTransform(input: {
       fromMetric: (point) => point,
     };
   }
+
+  validateGeographicBoundingBox(boundingBox);
 
   const centerLon = (minX + maxX) / 2;
   const centerLat = (minY + maxY) / 2;
@@ -123,13 +105,23 @@ function normalizeCrsCode(crsCode: string): string {
   return crsCode.trim().toUpperCase();
 }
 
+function isKnownGeographicCrs(crsCode: string): boolean {
+  const normalizedCrsCode = normalizeCrsCode(crsCode);
+  if (GEOGRAPHIC_CRS.has(normalizedCrsCode)) {
+    return true;
+  }
+
+  const epsgCode = parseEpsgCode(normalizedCrsCode);
+  return epsgCode !== null && GEOGRAPHIC_CRS.has(`EPSG:${epsgCode}`);
+}
+
 function parseEpsgCode(crsCode: string): number | null {
-  if (!crsCode.startsWith('EPSG:')) {
+  const match = /^EPSG:(\d+)$/.exec(crsCode);
+  if (!match) {
     return null;
   }
 
-  const code = Number.parseInt(crsCode.slice(5), 10);
-  return Number.isFinite(code) ? code : null;
+  return Number.parseInt(match[1], 10);
 }
 
 function validateBoundingBox(boundingBox: [number, number, number, number]): void {
@@ -140,5 +132,15 @@ function validateBoundingBox(boundingBox: [number, number, number, number]): voi
   const [minX, minY, maxX, maxY] = boundingBox;
   if (minX > maxX || minY > maxY) {
     throw new Error('bounding box must be ordered as [minX, minY, maxX, maxY]');
+  }
+}
+
+function validateGeographicBoundingBox([minLon, minLat, maxLon, maxLat]: [number, number, number, number]): void {
+  if (minLat < -90 || maxLat > 90) {
+    throw new Error('geographic bounding box latitude must be within [-90, 90]');
+  }
+
+  if (minLon < -180 || maxLon > 180) {
+    throw new Error('geographic bounding box longitude must be within [-180, 180]');
   }
 }
