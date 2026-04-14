@@ -99,6 +99,16 @@ export type RasterHoverInfo = {
   inValidityMask: boolean | null;
   inFence: boolean;
   gridCellId: string | null;
+  gridMeanValue: number | null;
+  gridValidPixelCount: number | null;
+};
+
+export type RasterHoverInfoInput = Omit<
+  RasterHoverInfo,
+  'gridMeanValue' | 'gridValidPixelCount'
+> & {
+  gridMeanValue?: number | null;
+  gridValidPixelCount?: number | null;
 };
 
 export type RasterMetadata = {

@@ -1,8 +1,6 @@
 import { getFenceSummary, isPointInFence } from '@/shared/geo/fence';
 import type { FencePosition, FenceRings } from '@/shared/types/fence';
-import type { GridCell, GridPreview } from '@/shared/types/grid';
-
-export const MAX_GRID_PREVIEW_CELLS = 10000;
+import type { GridAggregationResult, GridCell, GridPreview } from '@/shared/types/grid';
 
 function buildCellPolygon(minX: number, minY: number, maxX: number, maxY: number): FenceRings {
   return [
@@ -16,7 +14,11 @@ function buildCellPolygon(minX: number, minY: number, maxX: number, maxY: number
   ];
 }
 
-export function buildGridPreview(rings: FenceRings, cellSize: number): GridPreview {
+export function buildGridPreview(
+  rings: FenceRings,
+  cellSize: number,
+  aggregation?: GridAggregationResult,
+): GridPreview {
   if (cellSize <= 0) {
     throw new Error('cell size must be greater than 0');
   }
@@ -26,14 +28,10 @@ export function buildGridPreview(rings: FenceRings, cellSize: number): GridPrevi
   const cols = Math.ceil((maxX - minX) / cellSize);
   const rows = Math.ceil((maxY - minY) / cellSize);
   const estimatedTotalCells = rows * cols;
-  const previewStride =
-    estimatedTotalCells > MAX_GRID_PREVIEW_CELLS
-      ? Math.ceil(Math.sqrt(estimatedTotalCells / MAX_GRID_PREVIEW_CELLS))
-      : 1;
   const cells: GridCell[] = [];
 
-  for (let row = 0; row < rows; row += previewStride) {
-    for (let col = 0; col < cols; col += previewStride) {
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < cols; col += 1) {
       const cellMinX = minX + col * cellSize;
       const cellMinY = minY + row * cellSize;
       const cellMaxX = Math.min(cellMinX + cellSize, maxX);
@@ -44,12 +42,15 @@ export function buildGridPreview(rings: FenceRings, cellSize: number): GridPrevi
         continue;
       }
 
+      const cellId = `r${row}-c${col}`;
+
       cells.push({
-        id: `r${row}-c${col}`,
+        id: cellId,
         row,
         col,
         center,
         polygon: buildCellPolygon(cellMinX, cellMinY, cellMaxX, cellMaxY),
+        aggregation: aggregation?.cellsById[cellId],
       });
     }
   }
@@ -62,12 +63,9 @@ export function buildGridPreview(rings: FenceRings, cellSize: number): GridPrevi
       cols,
       totalCells: estimatedTotalCells,
       previewCellCount: cells.length,
-      isPreviewLimited: previewStride > 1,
-      previewStride,
-      warning:
-        previewStride > 1
-          ? `网格过密，当前按 ${previewStride}x${previewStride} 抽样预览。`
-          : null,
+      isPreviewLimited: false,
+      previewStride: 1,
+      warning: null,
     },
   };
 }

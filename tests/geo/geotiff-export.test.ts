@@ -1,11 +1,26 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  applyFenceNoDataMask,
+  applyGridAggregationToFenceWindowBands,
+  applyGridNoDataMask,
+  buildGridAggregationFromFenceWindow,
   buildGeoTiffExportMetadata,
   getPixelWindowFromFenceBoundingBox,
   pickExportNoDataValue,
+  readGeoTiffFenceWindow,
 } from '@/shared/geo/geotiffExport';
+
+const { fromArrayBufferMock } = vi.hoisted(() => ({
+  fromArrayBufferMock: vi.fn(),
+}));
+
+vi.mock('geotiff', () => ({
+  fromArrayBuffer: fromArrayBufferMock,
+}));
+
+beforeEach(() => {
+  fromArrayBufferMock.mockReset();
+});
 
 describe('getPixelWindowFromFenceBoundingBox', () => {
   it('converts fence bbox into a clamped pixel window', () => {
@@ -33,24 +48,165 @@ describe('getPixelWindowFromFenceBoundingBox', () => {
   });
 });
 
-describe('applyFenceNoDataMask', () => {
-  it('writes NoData to pixels whose centers fall outside the fence', () => {
+describe('readGeoTiffFenceWindow', () => {
+  it('reads the original GeoTIFF fence window for downstream aggregation', async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], 'demo.tif', { type: 'image/tiff' });
+    const image = {
+      getWidth: () => 10,
+      getHeight: () => 10,
+      getOrigin: () => [100, 200, 0] as [number, number, number],
+      getResolution: () => [10, -10, 0] as [number, number, number],
+      getSamplesPerPixel: () => 2,
+      getBitsPerSample: (index = 0) => [32, 16][index],
+      getSampleFormat: (index = 0) => [3, 1][index],
+      getGDALNoData: () => -9999,
+      getFileDirectory: () => ({
+        PhotometricInterpretation: 1,
+      }),
+      readRasters: vi.fn().mockResolvedValue([new Float32Array([1, 2, 3, 4])]),
+    };
+
+    fromArrayBufferMock.mockResolvedValue({
+      getImage: vi.fn().mockResolvedValue(image),
+    });
+
+    const result = await readGeoTiffFenceWindow({
+      file,
+      fenceRings: [
+        [
+          [110, 180],
+          [130, 180],
+          [130, 160],
+          [110, 160],
+          [110, 180],
+        ],
+      ],
+      samples: [0],
+    });
+
+    expect(image.readRasters).toHaveBeenCalledWith({
+      window: [1, 2, 3, 4],
+      interleave: false,
+      samples: [0],
+    });
+    expect(result).toMatchObject({
+      window: [1, 2, 3, 4],
+      width: 2,
+      height: 2,
+      origin: [100, 200, 0],
+      resolution: [10, -10, 0],
+      sourceNoDataValue: -9999,
+      bitsPerSample: [32],
+      sampleFormat: [3],
+      samplesPerPixel: 1,
+    });
+    expect(result.bands[0]).toEqual(new Float32Array([1, 2, 3, 4]));
+  });
+});
+
+describe('buildGridAggregationFromFenceWindow', () => {
+  it('aggregates the primary band from the original raster window into grid means', () => {
+    const aggregation = buildGridAggregationFromFenceWindow({
+      bands: [new Float32Array([1, 3, 5, 7])],
+      window: [0, 0, 2, 2],
+      width: 2,
+      height: 2,
+      origin: [0, 2, 0],
+      resolution: [1, -1, 0],
+      fenceRings: [
+        [
+          [0, 0],
+          [2, 0],
+          [2, 2],
+          [0, 2],
+          [0, 0],
+        ],
+      ],
+      gridCellSize: 2,
+      sourceNoDataValue: null,
+    });
+
+    expect(aggregation.cellsById['r0-c0']).toMatchObject({
+      pixelCount: 4,
+      validPixelCount: 4,
+      sumValue: 16,
+      meanValue: 4,
+      outputValue: 4,
+    });
+  });
+});
+
+describe('applyGridAggregationToFenceWindowBands', () => {
+  it('rewrites hit-cell pixels to the aggregated grid value and keeps others as nodata', () => {
+    const result = applyGridAggregationToFenceWindowBands({
+      bands: [new Float32Array([1, 3, 5, 7])],
+      window: [0, 0, 2, 2],
+      width: 2,
+      height: 2,
+      origin: [0, 2, 0],
+      resolution: [1, -1, 0],
+      fenceRings: [
+        [
+          [0, 0],
+          [2, 0],
+          [2, 2],
+          [0, 2],
+          [0, 0],
+        ],
+      ],
+      gridCellSize: 2,
+      sourceNoDataValue: null,
+      noDataValue: -9999,
+    });
+
+    expect(Array.from(result.bands[0])).toEqual([4, 4, 4, 4]);
+    expect(result.aggregation.cellsById['r0-c0']?.meanValue).toBe(4);
+    expect(result.maskedPixelCount).toBe(0);
+  });
+});
+
+describe('applyGridNoDataMask', () => {
+  it('writes NoData to pixels whose centers fall outside the selected grid cells', () => {
     const band = new Float32Array([1, 2, 3, 4]);
 
-    const masked = applyFenceNoDataMask({
+    const masked = applyGridNoDataMask({
       bands: [band],
       window: [0, 0, 2, 2],
       width: 2,
       height: 2,
       origin: [0, 2, 0],
       resolution: [1, -1, 0],
-      fenceRings: [[[0, 2], [1, 2], [1, 1], [0, 1], [0, 2]]],
+      fenceRings: [
+        [
+          [0, 0],
+          [2, 0],
+          [2, 2],
+          [0, 2],
+          [0, 0],
+        ],
+        [
+          [0, 0],
+          [2, 0],
+          [2, 1],
+          [0, 1],
+          [0, 0],
+        ],
+        [
+          [1, 1],
+          [2, 1],
+          [2, 2],
+          [1, 2],
+          [1, 1],
+        ],
+      ],
+      gridCellSize: 1,
       noDataValue: -9999,
     });
 
-    expect(Array.from(masked[0])).toEqual([1, -9999, -9999, -9999]);
-    expect(masked[0]).toBeInstanceOf(Float32Array);
-    expect(masked[0]).not.toBe(band);
+    expect(Array.from(masked.bands[0])).toEqual([1, -9999, -9999, -9999]);
+    expect(masked.maskedPixelCount).toBe(3);
+    expect(masked.bands[0]).toBeInstanceOf(Float32Array);
+    expect(masked.bands[0]).not.toBe(band);
   });
 });
 

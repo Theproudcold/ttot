@@ -53,28 +53,29 @@ describe('RightPanel', () => {
 
     render(<RightPanel />);
 
-    expect(screen.getByText('10000')).toBeInTheDocument();
+    expect(screen.getByText('命中网格数')).toBeInTheDocument();
+    expect(
+      within(screen.getByText('预计网格数').closest('.metric-item') as HTMLElement).getByText('10000'),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByText('命中网格数').closest('.metric-item') as HTMLElement).getByText('10000'),
+    ).toBeInTheDocument();
   });
 
-  it('renders fence and grid warnings when preview is downgraded or fence is invalid', () => {
+  it('renders placeholders when fence is invalid but no right-panel warning card is shown', () => {
     act(() => {
       useFenceStore.getState().setValidationMessage('围栏必须落在影像有效数据范围内');
-      useGridStore.getState().setSummary({
-        cellSize: 0.1,
-        rows: 200,
-        cols: 200,
-        totalCells: 40000,
-        previewCellCount: 4489,
-        isPreviewLimited: true,
-        previewStride: 3,
-        warning: '网格过密，当前按 3x3 抽样预览。',
-      });
     });
 
     render(<RightPanel />);
 
-    expect(screen.getByText('围栏必须落在影像有效数据范围内')).toBeInTheDocument();
-    expect(screen.getByText('网格过密，当前按 3x3 抽样预览。')).toBeInTheDocument();
+    expect(screen.queryByText('围栏必须落在影像有效数据范围内')).not.toBeInTheDocument();
+    expect(
+      within(screen.getByText('围栏面积').closest('.metric-item') as HTMLElement).getByText('--'),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByText('命中网格数').closest('.metric-item') as HTMLElement).getByText('--'),
+    ).toBeInTheDocument();
   });
 
   it('shows raster physical size and grid ratios when metadata exists', () => {
@@ -115,6 +116,8 @@ describe('RightPanel', () => {
         inValidityMask: true,
         inFence: false,
         gridCellId: 'r10-c20',
+        gridMeanValue: null,
+        gridValidPixelCount: null,
       });
     });
 
@@ -144,6 +147,8 @@ describe('RightPanel', () => {
         inValidityMask: null,
         inFence: false,
         gridCellId: null,
+        gridMeanValue: null,
+        gridValidPixelCount: null,
       });
     });
 
@@ -163,6 +168,42 @@ describe('RightPanel', () => {
     ).toBeInTheDocument();
     expect(
       within(screen.getByText('网格命中').closest('.metric-item') as HTMLElement).getByText('--'),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByText('网格均值').closest('.metric-item') as HTMLElement).getByText('--'),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByText('有效像元数').closest('.metric-item') as HTMLElement).getByText('--'),
+    ).toBeInTheDocument();
+  });
+
+  it('shows aggregated grid mean and valid pixel count in hover diagnostics', () => {
+    act(() => {
+      useMapUiStore.getState().setHoverInfo({
+        coordinate: [1, 2],
+        pixel: { row: 3, col: 4 },
+        sampleValues: [0.13],
+        classificationLayerName: null,
+        classificationLabel: null,
+        classificationColor: null,
+        inValidityMask: null,
+        inFence: false,
+        gridCellId: 'r10-c20',
+        gridMeanValue: 0.62,
+        gridValidPixelCount: 18,
+      });
+    });
+
+    render(<RightPanel />);
+
+    expect(
+      within(screen.getByText('像元值').closest('.metric-item') as HTMLElement).getByText('0.13'),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByText('网格均值').closest('.metric-item') as HTMLElement).getByText('0.62'),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByText('有效像元数').closest('.metric-item') as HTMLElement).getByText('18'),
     ).toBeInTheDocument();
   });
 });

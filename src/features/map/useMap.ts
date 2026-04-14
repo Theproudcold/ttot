@@ -18,6 +18,7 @@ import { buildMapViewDebugPayload, debugLog, summarizePreviewPayload } from '@/f
 import { useMapUiStore } from '@/features/map/mapUiStore';
 import { ensureProjectionRegistered } from '@/shared/geo/crs';
 import { getFenceSummary, isCoordinateInValidityMask, isFenceInsideValidityMask, isPointInFence } from '@/shared/geo/fence';
+import { buildGridAggregationFromFenceWindow, readGeoTiffFenceWindow } from '@/shared/geo/geotiffExport';
 import { buildGridPreview } from '@/shared/geo/grid';
 import {
   buildRasterClassificationPreviewRgba,
@@ -98,14 +99,36 @@ function getPreviewSampleValues(
   return values.every((value) => Number.isNaN(value)) ? null : values;
 }
 
-function findGridCellAtCoordinate(coordinate: [number, number], cells: GridCell[]): string | null {
+function findGridCellAtCoordinate(coordinate: [number, number], cells: GridCell[]): GridCell | null {
   for (const cell of cells) {
     if (isPointInFence(coordinate, cell.polygon)) {
-      return cell.id;
+      return cell;
     }
   }
 
   return null;
+}
+
+export function getGridCellStyleColors(
+  cell: GridCell,
+  visibleClassificationLayer: (RasterClassificationLayer & { visible: boolean }) | null,
+): { strokeColor: string; fillColor: string } {
+  const outputValue = cell.aggregation?.outputValue;
+  if (outputValue === null || outputValue === undefined || !Number.isFinite(outputValue)) {
+    return {
+      strokeColor: 'rgba(0, 0, 0, 0)',
+      fillColor: 'rgba(0, 0, 0, 0)',
+    };
+  }
+
+  return {
+    strokeColor: 'rgba(0, 0, 0, 0.18)',
+    fillColor:
+      findRasterClassificationMatch(
+        outputValue,
+        visibleClassificationLayer ?? useMapUiStore.getState().classificationLayers[0],
+      )?.color ?? 'rgba(17, 17, 17, 0.18)',
+  };
 }
 
 function getPrimarySampleValue(sampleValues: number[] | null, noDataValue?: number | null): number | null {
@@ -149,6 +172,7 @@ export function useMap(metadata: RasterMetadata | null) {
   const setPointerText = useRasterStore((state) => state.setPointerText);
   const preview = useRasterStore((state) => state.preview);
   const validityMask = useRasterStore((state) => state.validityMask);
+  const sourceFile = useRasterStore((state) => state.sourceFile);
   const layers = useMapUiStore((state) => state.layers);
   const classificationLayers = useMapUiStore((state) => state.classificationLayers);
   const visibleClassificationLayerId = useMapUiStore((state) => state.visibleClassificationLayerId);
@@ -286,15 +310,25 @@ export function useMap(metadata: RasterMetadata | null) {
     const gridLayer = new VectorLayer({
       source: gridSource,
       visible: layers.grid,
-      style: new Style({
-        stroke: new Stroke({
-          color: 'rgba(0, 0, 0, 0.18)',
-          width: 1,
-        }),
-        fill: new Fill({
-          color: 'rgba(0, 0, 0, 0.01)',
-        }),
-      }),
+      style: (feature) => {
+        const cell = feature.get('gridCell') as GridCell | undefined;
+        const colors = cell
+          ? getGridCellStyleColors(cell, visibleClassificationLayerRef.current)
+          : {
+              strokeColor: 'rgba(0, 0, 0, 0)',
+              fillColor: 'rgba(0, 0, 0, 0)',
+            };
+
+        return new Style({
+          stroke: new Stroke({
+            color: colors.strokeColor,
+            width: 1,
+          }),
+          fill: new Fill({
+            color: colors.fillColor,
+          }),
+        });
+      },
     });
     map.addLayer(gridLayer);
     map.addLayer(fenceLayer);
@@ -317,6 +351,7 @@ export function useMap(metadata: RasterMetadata | null) {
       const coordinate: [number, number] = [x, y];
       const sampleValues = getPreviewSampleValues(coordinate, currentMetadata, currentPreview);
       const primarySampleValue = getPrimarySampleValue(sampleValues, currentPreview.noDataValue);
+      const hitGridCell = findGridCellAtCoordinate(coordinate, currentGridCells);
       const visibleClassificationLayer = visibleClassificationLayerRef.current;
       const classificationMatch =
         currentPreview.sampleBandCount === 1 && visibleClassificationLayer
@@ -337,7 +372,9 @@ export function useMap(metadata: RasterMetadata | null) {
           ? isCoordinateInValidityMask(coordinate, currentValidityMask)
           : null,
         inFence: currentFence ? isPointInFence(coordinate, currentFence.geometry.coordinates) : false,
-        gridCellId: findGridCellAtCoordinate(coordinate, currentGridCells),
+        gridCellId: hitGridCell?.id ?? null,
+        gridMeanValue: hitGridCell?.aggregation?.meanValue ?? null,
+        gridValidPixelCount: hitGridCell?.aggregation?.validPixelCount ?? null,
       });
     });
 
@@ -505,6 +542,10 @@ export function useMap(metadata: RasterMetadata | null) {
   }, [layers.grid]);
 
   useEffect(() => {
+    gridLayerRef.current?.changed();
+  }, [classificationLayers, gridCells, visibleClassificationLayerId]);
+
+  useEffect(() => {
     if (import.meta.env.VITEST || !fenceSourceRef.current) {
       return;
     }
@@ -528,28 +569,84 @@ export function useMap(metadata: RasterMetadata | null) {
     }
 
     const source = gridSourceRef.current;
-    source.clear();
+    let disposed = false;
 
-    if (!fence) {
-      setPreview([], null);
-      return;
-    }
+    const renderGridPreview = (cells: GridCell[], summary: ReturnType<typeof buildGridPreview>['summary'] | null) => {
+      source.clear();
+      setPreview(cells, summary);
 
-    try {
-      const preview = buildGridPreview(fence.geometry.coordinates, cellSize);
-      setPreview(preview.cells, preview.summary);
-
-      for (const cell of preview.cells) {
+      for (const cell of cells) {
         source.addFeature(
           new Feature({
             geometry: new Polygon(cell.polygon),
+            gridCell: cell,
           }),
         );
       }
-    } catch {
-      setPreview([], null);
+    };
+
+    if (!fence) {
+      renderGridPreview([], null);
+      return () => {
+        disposed = true;
+      };
     }
-  }, [cellSize, fence, setPreview]);
+
+    try {
+      const basePreview = buildGridPreview(fence.geometry.coordinates, cellSize);
+      renderGridPreview(basePreview.cells, basePreview.summary);
+
+      if (!sourceFile) {
+        return () => {
+          disposed = true;
+        };
+      }
+
+      void (async () => {
+        try {
+          const fenceWindow = await readGeoTiffFenceWindow({
+            file: sourceFile,
+            fenceRings: fence.geometry.coordinates,
+            samples: [0],
+          });
+          if (disposed) {
+            return;
+          }
+
+          const aggregation = buildGridAggregationFromFenceWindow({
+            ...fenceWindow,
+            fenceRings: fence.geometry.coordinates,
+            gridCellSize: cellSize,
+          });
+          const nextPreview = buildGridPreview(fence.geometry.coordinates, cellSize, aggregation);
+
+          if (disposed) {
+            return;
+          }
+
+          debugLog('map', '网格聚合预览已更新', {
+            cellSize,
+            gridCellCount: nextPreview.cells.length,
+            aggregationCellCount: Object.keys(aggregation.cellsById).length,
+          });
+          renderGridPreview(nextPreview.cells, nextPreview.summary);
+        } catch (error) {
+          if (disposed) {
+            return;
+          }
+
+          debugLog('map', '网格聚合预览读取失败，回退到几何网格', error);
+        }
+      })();
+    } catch (error) {
+      debugLog('map', '网格预览构建失败', error);
+      renderGridPreview([], null);
+    }
+
+    return () => {
+      disposed = true;
+    };
+  }, [cellSize, fence, setPreview, sourceFile]);
 
   useEffect(() => {
     if (import.meta.env.VITEST || !mapRef.current || !fenceSourceRef.current) {

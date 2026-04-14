@@ -50,6 +50,16 @@ function formatFenceBbox(bbox: [number, number, number, number] | null): string 
   return bbox.map((value) => value.toFixed(2)).join(', ');
 }
 
+function formatMetricNumber(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) {
+    return '--';
+  }
+
+  return new Intl.NumberFormat('zh-CN', {
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
 export function RightPanel() {
   const metadata = useRasterStore((state) => state.metadata);
   const status = useRasterStore((state) => state.status);
@@ -78,10 +88,8 @@ export function RightPanel() {
             <dd>{gridSummary?.totalCells ?? '--'}</dd>
           </div>
           <div className="metric-item">
-            <dt className="metric-label">当前预览格网</dt>
-            <dd>
-              {gridSummary ? `${gridSummary.previewCellCount} / ${gridSummary.totalCells}` : '--'}
-            </dd>
+            <dt className="metric-label">命中网格数</dt>
+            <dd>{gridSummary?.previewCellCount ?? '--'}</dd>
           </div>
           <div className="metric-item">
             <dt className="metric-label">影像状态</dt>
@@ -194,6 +202,14 @@ export function RightPanel() {
             <div className="metric-item">
               <dt className="metric-label">网格命中</dt>
               <dd>{hoverInfo.gridCellId ?? '--'}</dd>
+            </div>
+            <div className="metric-item">
+              <dt className="metric-label">网格均值</dt>
+              <dd>{formatMetricNumber(hoverInfo.gridMeanValue)}</dd>
+            </div>
+            <div className="metric-item">
+              <dt className="metric-label">有效像元数</dt>
+              <dd>{formatMetricNumber(hoverInfo.gridValidPixelCount)}</dd>
             </div>
           </dl>
         ) : (

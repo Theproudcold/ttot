@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 import { buildDefaultNdviClassificationLayer } from '@/shared/geo/raster';
-import type { RasterHoverInfo, RasterRenderSettings } from '@/shared/types/raster';
+import type { RasterHoverInfo, RasterHoverInfoInput, RasterRenderSettings } from '@/shared/types/raster';
 import type { RasterClassificationLayer } from '@/shared/types/raster';
 
 type LayerKey = 'raster' | 'fence' | 'grid';
@@ -35,7 +35,7 @@ type MapUiState = {
   visibleClassificationLayerId: string | null;
   toggleLayer: (layer: LayerKey) => void;
   setLayerVisibility: (layer: LayerKey, visible: boolean) => void;
-  setHoverInfo: (hoverInfo: RasterHoverInfo | null) => void;
+  setHoverInfo: (hoverInfo: RasterHoverInfoInput | null) => void;
   setRasterRenderSettings: (settings: Partial<RasterRenderSettings>) => void;
   addClassificationLayer: (layer: ClassificationLayerState) => void;
   updateClassificationLayer: (layerId: string, updates: ClassificationLayerUpdates) => void;
@@ -264,6 +264,14 @@ function createDuplicateLayerId(
   return nextId;
 }
 
+function normalizeHoverInfo(hoverInfo: RasterHoverInfoInput): RasterHoverInfo {
+  return {
+    ...hoverInfo,
+    gridMeanValue: hoverInfo.gridMeanValue ?? null,
+    gridValidPixelCount: hoverInfo.gridValidPixelCount ?? null,
+  };
+}
+
 export const useMapUiStore = create<MapUiState>((set) => ({
   ...buildInitialClassificationState(),
   layers: INITIAL_LAYERS,
@@ -283,7 +291,7 @@ export const useMapUiStore = create<MapUiState>((set) => ({
         [layer]: visible,
       },
     })),
-  setHoverInfo: (hoverInfo) => set({ hoverInfo }),
+  setHoverInfo: (hoverInfo) => set({ hoverInfo: hoverInfo ? normalizeHoverInfo(hoverInfo) : null }),
   setRasterRenderSettings: (settings) =>
     set((state) => ({
       rasterRenderSettings: {

@@ -5,7 +5,8 @@ import { MapView } from '@/features/map/MapView';
 import { useFenceStore } from '@/features/fence/fenceStore';
 import { useMapUiStore } from '@/features/map/mapUiStore';
 import { useRasterStore } from '@/features/map/rasterStore';
-import { scheduleMapResizeFrame } from '@/features/map/useMap';
+import { getGridCellStyleColors, scheduleMapResizeFrame } from '@/features/map/useMap';
+import type { GridCell } from '@/shared/types/grid';
 import type { RasterClassificationLayer } from '@/shared/types/raster';
 
 function createRulesClassificationLayer(): RasterClassificationLayer & { visible: boolean } {
@@ -21,6 +22,34 @@ function createRulesClassificationLayer(): RasterClassificationLayer & { visible
       { min: 0.2, max: 0.6, color: '#7fbf3f', label: '中覆盖' },
       { min: 0.6, max: null, color: '#1f7a1f', label: '高覆盖' },
     ],
+  };
+}
+
+function createGridCell(outputValue: number | null): GridCell {
+  return {
+    id: 'r0-c0',
+    row: 0,
+    col: 0,
+    center: [0.5, 0.5],
+    polygon: [
+      [
+        [0, 0],
+        [1, 0],
+        [1, 1],
+        [0, 1],
+        [0, 0],
+      ],
+    ],
+    aggregation: {
+      cellId: 'r0-c0',
+      row: 0,
+      col: 0,
+      pixelCount: 1,
+      validPixelCount: outputValue === null ? 0 : 1,
+      sumValue: outputValue ?? 0,
+      meanValue: outputValue,
+      outputValue,
+    },
   };
 }
 
@@ -87,6 +116,18 @@ describe('MapView', () => {
     expect(renderSync).toHaveBeenCalledTimes(1);
   });
 
+  it('returns fully transparent grid styles when a cell has no aggregated output value', () => {
+    const transparentColors = getGridCellStyleColors(createGridCell(null), null);
+    const visibleColors = getGridCellStyleColors(createGridCell(0.62), createRulesClassificationLayer());
+
+    expect(transparentColors).toEqual({
+      strokeColor: 'rgba(0, 0, 0, 0)',
+      fillColor: 'rgba(0, 0, 0, 0)',
+    });
+    expect(visibleColors.strokeColor).toBe('rgba(0, 0, 0, 0.18)');
+    expect(visibleColors.fillColor).toBe('#1f7a1f');
+  });
+
   it('renders hover info card when pointer diagnostics exist', () => {
     act(() => {
       useRasterStore.getState().setPreview({
@@ -107,6 +148,8 @@ describe('MapView', () => {
         inValidityMask: true,
         inFence: true,
         gridCellId: 'r10-c20',
+        gridMeanValue: 0.62,
+        gridValidPixelCount: 18,
       });
     });
 
@@ -118,6 +161,8 @@ describe('MapView', () => {
     expect(screen.getByLabelText('gradient-legend')).toBeInTheDocument();
     expect(screen.getByText('命中围栏：是')).toBeInTheDocument();
     expect(screen.getByText('命中网格：r10-c20')).toBeInTheDocument();
+    expect(screen.getByText('网格均值：0.62')).toBeInTheDocument();
+    expect(screen.getByText('有效像元：18')).toBeInTheDocument();
   });
 
   it('renders the default NDVI gradient legend with the visible scheme name', () => {

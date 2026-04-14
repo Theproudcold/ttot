@@ -22,6 +22,6 @@ export const useGridStore = create<GridState>((set) => ({
   ...INITIAL_STATE,
   setCellSize: (cellSize) => set({ cellSize }),
   setSummary: (summary) => set({ summary }),
-  setPreview: (cells, summary) => set({ cells, summary }),
+  setPreview: (cells, summary) => set({ cells: [...cells], summary }),
   reset: () => set(INITIAL_STATE),
 }));

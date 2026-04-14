@@ -1,18 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { fromArrayBufferMock, writeArrayBufferMock, readBlobBufferMock } = vi.hoisted(() => ({
+const { fromArrayBufferMock, readBlobBufferMock, writeGeoTiffBufferMock } = vi.hoisted(() => ({
   fromArrayBufferMock: vi.fn(),
-  writeArrayBufferMock: vi.fn(),
   readBlobBufferMock: vi.fn(),
+  writeGeoTiffBufferMock: vi.fn(),
 }));
 
 vi.mock('geotiff', () => ({
   fromArrayBuffer: fromArrayBufferMock,
-  writeArrayBuffer: writeArrayBufferMock,
 }));
 
 vi.mock('@/shared/geo/raster', () => ({
   readBlobBuffer: readBlobBufferMock,
+}));
+
+vi.mock('@/shared/geo/geotiffWriter', () => ({
+  writeGeoTiffBuffer: writeGeoTiffBufferMock,
 }));
 
 import { exportFenceGeoTiff, downloadExportedGeoTiff } from '@/features/export/exportGeoTiff';
@@ -40,8 +43,8 @@ const fence: FenceFeature = {
 
 beforeEach(() => {
   fromArrayBufferMock.mockReset();
-  writeArrayBufferMock.mockReset();
   readBlobBufferMock.mockReset();
+  writeGeoTiffBufferMock.mockReset();
 });
 
 afterEach(() => {
@@ -74,11 +77,12 @@ describe('exportFenceGeoTiff', () => {
     fromArrayBufferMock.mockResolvedValue({
       getImage: vi.fn().mockResolvedValue(image),
     });
-    writeArrayBufferMock.mockReturnValue(new Uint8Array([7, 8, 9]).buffer);
+    writeGeoTiffBufferMock.mockReturnValue(new Uint8Array([7, 8, 9]).buffer);
 
     const result = await exportFenceGeoTiff({
       file,
       fence,
+      gridCellSize: 10,
       filename: 'test2-clipped.tif',
     });
 
@@ -90,19 +94,149 @@ describe('exportFenceGeoTiff', () => {
         interleave: false,
       }),
     );
-    expect(writeArrayBufferMock).toHaveBeenCalledTimes(1);
-    expect(writeArrayBufferMock).toHaveBeenCalledWith(
-      expect.any(Array),
+    expect(writeGeoTiffBufferMock).toHaveBeenCalledTimes(1);
+    expect(writeGeoTiffBufferMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        ImageWidth: 3,
-        ImageLength: 3,
-        GDAL_NODATA: '-3.4028234663852886e+38',
-        ProjectedCSTypeGeoKey: 4549,
+        width: 3,
+        height: 3,
+        bands: expect.any(Array),
+        samplesPerPixel: 1,
       }),
     );
+    expect(writeGeoTiffBufferMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        width: 3,
+        height: 3,
+        gdalNoData: undefined,
+      }),
+    );
+    const firstCall = vi.mocked(writeGeoTiffBufferMock).mock.calls[0]?.[0];
+    expect(firstCall?.bands[0]).toEqual(new Float64Array([1, 2, 3, 4, 5, 6, 7, 8, 9]));
     expect(result.filename).toBe('test2-clipped.tif');
     expect(result.blob).toBeInstanceOf(Blob);
     expect(result.blob.type).toBe('image/tiff');
+  });
+
+  it('rewrites every export band with the primary-band aggregated grid values before writing', async () => {
+    const file = new File(['demo'], 'test2.tif', { type: 'image/tiff' });
+    const image = {
+      getWidth: () => 4,
+      getHeight: () => 4,
+      getOrigin: () => [100, 200, 0] as [number, number, number],
+      getResolution: () => [10, -10, 0] as [number, number, number],
+      getGeoKeys: () => ({
+        GTModelTypeGeoKey: 1,
+        ProjectedCSTypeGeoKey: 4549,
+      }),
+      getBitsPerSample: (index = 0) => [32, 32][index],
+      getSampleFormat: (index = 0) => [3, 3][index],
+      getSamplesPerPixel: () => 2,
+      getGDALNoData: () => null,
+      getFileDirectory: () => ({
+        PhotometricInterpretation: 1,
+      }),
+      readRasters: vi.fn().mockResolvedValue([
+        new Float32Array([1, 2, 3, 4]),
+        new Float32Array([11, 12, 13, 14]),
+      ]),
+    };
+
+    readBlobBufferMock.mockResolvedValue(new Uint8Array([1, 2, 3]).buffer);
+    fromArrayBufferMock.mockResolvedValue({
+      getImage: vi.fn().mockResolvedValue(image),
+    });
+    writeGeoTiffBufferMock.mockReturnValue(new Uint8Array([7, 8, 9]).buffer);
+
+    await exportFenceGeoTiff({
+      file,
+      gridCellSize: 1,
+      fence: {
+        ...fence,
+        summary: {
+          ...fence.summary,
+          bbox: [100, 160, 120, 180],
+        },
+        geometry: {
+          ...fence.geometry,
+          coordinates: [
+            [
+              [100, 180],
+              [120, 180],
+              [120, 160],
+              [100, 160],
+              [100, 180],
+            ],
+          ],
+        },
+      },
+    });
+
+    expect(writeGeoTiffBufferMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        width: 2,
+        height: 2,
+        samplesPerPixel: 2,
+        bands: [
+          expect.any(Float64Array),
+          expect.any(Float64Array),
+        ],
+        gdalNoData: undefined,
+      }),
+    );
+    const multiBandCall = vi.mocked(writeGeoTiffBufferMock).mock.calls[0]?.[0];
+    expect(multiBandCall?.bands[0]).toEqual(new Float64Array([1, 2, 3, 4]));
+    expect(multiBandCall?.bands[1]).toEqual(new Float64Array([1, 2, 3, 4]));
+  });
+
+  it('rewrites exported pixels to the aggregated grid mean values before writing', async () => {
+    const file = new File(['demo'], 'test2.tif', { type: 'image/tiff' });
+    const image = {
+      getWidth: () => 4,
+      getHeight: () => 4,
+      getOrigin: () => [100, 200, 0] as [number, number, number],
+      getResolution: () => [10, -10, 0] as [number, number, number],
+      getBitsPerSample: () => 32,
+      getSampleFormat: () => 3,
+      getSamplesPerPixel: () => 1,
+      getGDALNoData: () => null,
+      getFileDirectory: () => ({
+        PhotometricInterpretation: 1,
+      }),
+      readRasters: vi.fn().mockResolvedValue([new Float32Array([1, 3, 5, 7])]),
+    };
+
+    readBlobBufferMock.mockResolvedValue(new Uint8Array([1, 2, 3]).buffer);
+    fromArrayBufferMock.mockResolvedValue({
+      getImage: vi.fn().mockResolvedValue(image),
+    });
+    writeGeoTiffBufferMock.mockReturnValue(new Uint8Array([7, 8, 9]).buffer);
+
+    await exportFenceGeoTiff({
+      file,
+      gridCellSize: 20,
+      fence: {
+        ...fence,
+        summary: {
+          ...fence.summary,
+          bbox: [100, 180, 120, 200],
+        },
+        geometry: {
+          ...fence.geometry,
+          coordinates: [
+            [
+              [100, 200],
+              [120, 200],
+              [120, 180],
+              [100, 180],
+              [100, 200],
+            ],
+          ],
+        },
+      },
+    });
+
+    const aggregatedCall = vi.mocked(writeGeoTiffBufferMock).mock.calls[0]?.[0];
+    expect(aggregatedCall?.bands[0]).toEqual(new Float64Array([4, 4, 4, 4]));
   });
 });
 

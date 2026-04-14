@@ -107,6 +107,8 @@ export function MapView() {
             <div>{`分级区间：${hoverInfo.classificationLabel ?? '--'}`}</div>
             <div>{`命中围栏：${hoverInfo.inFence ? '是' : '否'}`}</div>
             <div>{`命中网格：${hoverInfo.gridCellId ?? '--'}`}</div>
+            <div>{`网格均值：${hoverInfo.gridMeanValue?.toFixed(2) ?? '--'}`}</div>
+            <div>{`有效像元：${hoverInfo.gridValidPixelCount ?? '--'}`}</div>
           </div>
         ) : null}
         {legendData && visibleClassificationLayer ? (

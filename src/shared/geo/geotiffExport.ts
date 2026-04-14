@@ -1,8 +1,16 @@
-import { isPointInFence } from '@/shared/geo/fence';
+import { fromArrayBuffer } from 'geotiff';
+
+import { getFenceSummary, isPointInFence } from '@/shared/geo/fence';
+import {
+  aggregateGridCellsFromRasterWindow,
+  applyGridAggregationToBands,
+} from '@/shared/geo/gridAggregation';
+import { readBlobBuffer } from '@/shared/geo/raster';
 import type { FenceBoundingBox, FencePosition, FenceRings } from '@/shared/types/fence';
+import type { GridAggregationResult } from '@/shared/types/grid';
 import type { RasterOrigin, RasterResolution } from '@/shared/types/raster';
 
-type SupportedRasterArray =
+export type SupportedRasterArray =
   | Uint8Array
   | Uint16Array
   | Uint32Array
@@ -12,7 +20,21 @@ type SupportedRasterArray =
   | Float32Array
   | Float64Array;
 
-type PixelWindow = [number, number, number, number];
+export type PixelWindow = [number, number, number, number];
+
+export type GeoTiffFenceWindowData = {
+  window: PixelWindow;
+  width: number;
+  height: number;
+  bands: SupportedRasterArray[];
+  origin: RasterOrigin;
+  resolution: RasterResolution;
+  sourceNoDataValue: number | null;
+  bitsPerSample: number[];
+  sampleFormat: number[];
+  samplesPerPixel: number;
+  fileDirectory: Record<string, unknown>;
+};
 
 function getRasterExtent(
   rasterWidth: number,
@@ -35,6 +57,25 @@ function getRasterExtent(
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
+}
+
+function normalizeRasterBands(rasters: unknown): SupportedRasterArray[] {
+  if (!Array.isArray(rasters)) {
+    throw new Error('GeoTIFF 栅格窗口读取结果无效');
+  }
+
+  return rasters as SupportedRasterArray[];
+}
+
+function normalizeNoDataValue(value: unknown): number | null {
+  const parsed =
+    typeof value === 'string'
+      ? Number(value)
+      : typeof value === 'number'
+        ? value
+        : null;
+
+  return parsed !== null && Number.isFinite(parsed) ? parsed : null;
 }
 
 function hasValueInBands(bands: SupportedRasterArray[], target: number): boolean {
@@ -119,7 +160,142 @@ export function getPixelWindowFromFenceBoundingBox(input: {
   return [Math.min(startCol, endCol - 1), Math.min(startRow, endRow - 1), endCol, endRow];
 }
 
-export function applyFenceNoDataMask<T extends SupportedRasterArray>(input: {
+export async function readGeoTiffFenceWindow(input: {
+  file: File;
+  fenceRings: FenceRings;
+  samples?: number[];
+}): Promise<GeoTiffFenceWindowData> {
+  const { file, fenceRings, samples } = input;
+  const arrayBuffer = await readBlobBuffer(file);
+  const tiff = await fromArrayBuffer(arrayBuffer);
+  const image = await tiff.getImage();
+  const origin = image.getOrigin() as RasterOrigin;
+  const resolution = image.getResolution() as RasterResolution;
+  const window = getPixelWindowFromFenceBoundingBox({
+    bbox: getFenceSummary(fenceRings).bbox,
+    rasterWidth: image.getWidth(),
+    rasterHeight: image.getHeight(),
+    origin,
+    resolution,
+  });
+  const sampleIndexes =
+    samples && samples.length > 0
+      ? samples
+      : Array.from({ length: image.getSamplesPerPixel() }, (_, index) => index);
+  const bands = normalizeRasterBands(
+    await image.readRasters({
+      window,
+      interleave: false,
+      samples: sampleIndexes,
+    }),
+  );
+  const fileDirectory = (image.getFileDirectory?.() ?? {}) as Record<string, unknown>;
+  const sourceNoDataValue = normalizeNoDataValue(
+    image.getGDALNoData?.() ?? fileDirectory.GDAL_NODATA ?? null,
+  );
+
+  return {
+    window,
+    width: window[2] - window[0],
+    height: window[3] - window[1],
+    bands,
+    origin,
+    resolution,
+    sourceNoDataValue,
+    bitsPerSample: sampleIndexes.map((index) => image.getBitsPerSample(index)),
+    sampleFormat: sampleIndexes.map((index) => image.getSampleFormat(index)),
+    samplesPerPixel: sampleIndexes.length,
+    fileDirectory,
+  };
+}
+
+export function buildGridAggregationFromFenceWindow(input: {
+  bands: SupportedRasterArray[];
+  window: PixelWindow;
+  width: number;
+  height: number;
+  origin: RasterOrigin;
+  resolution: RasterResolution;
+  fenceRings: FenceRings;
+  gridCellSize: number;
+  sourceNoDataValue: number | null;
+}): GridAggregationResult {
+  const { bands, window, width, height, origin, resolution, fenceRings, gridCellSize, sourceNoDataValue } =
+    input;
+  const primaryBand = bands[0];
+  if (!primaryBand) {
+    throw new Error('GeoTIFF 缺少主波段数据');
+  }
+
+  return aggregateGridCellsFromRasterWindow({
+    window,
+    width,
+    height,
+    origin,
+    resolution,
+    fenceRings,
+    gridCellSize,
+    band: primaryBand,
+    noDataValue: sourceNoDataValue,
+  });
+}
+
+export function applyGridAggregationToFenceWindowBands(input: {
+  bands: SupportedRasterArray[];
+  window: PixelWindow;
+  width: number;
+  height: number;
+  origin: RasterOrigin;
+  resolution: RasterResolution;
+  fenceRings: FenceRings;
+  gridCellSize: number;
+  sourceNoDataValue: number | null;
+  noDataValue: number;
+}): { aggregation: GridAggregationResult; bands: Float64Array[]; maskedPixelCount: number } {
+  const {
+    bands,
+    window,
+    width,
+    height,
+    origin,
+    resolution,
+    fenceRings,
+    gridCellSize,
+    sourceNoDataValue,
+    noDataValue,
+  } = input;
+  const aggregation = buildGridAggregationFromFenceWindow({
+    bands,
+    window,
+    width,
+    height,
+    origin,
+    resolution,
+    fenceRings,
+    gridCellSize,
+    sourceNoDataValue,
+  });
+  const rewritten = applyGridAggregationToBands({
+    bands,
+    aggregation,
+    width,
+    height,
+    window,
+    origin,
+    resolution,
+    fenceRings,
+    gridCellSize,
+    noDataValue,
+  });
+
+  return {
+    aggregation,
+    bands: rewritten.bands,
+    maskedPixelCount: rewritten.maskedPixelCount,
+  };
+}
+
+export function applyGridNoDataMask<T extends SupportedRasterArray>(input: {
   bands: T[];
   window: PixelWindow;
   width: number;
@@ -127,12 +303,34 @@ export function applyFenceNoDataMask<T extends SupportedRasterArray>(input: {
   origin: RasterOrigin;
   resolution: RasterResolution;
   fenceRings: FenceRings;
+  gridCellSize: number;
   noDataValue: number;
-}): T[] {
-  const { bands, window, width, height, origin, resolution, fenceRings, noDataValue } = input;
+}): { bands: T[]; maskedPixelCount: number } {
+  const { bands, window, width, height, origin, resolution, fenceRings, gridCellSize, noDataValue } = input;
   const [windowStartCol, windowStartRow] = window;
+  const { bbox } = getFenceSummary(fenceRings);
+  const [gridMinX, gridMinY, gridMaxX, gridMaxY] = bbox;
+  const cols = Math.ceil((gridMaxX - gridMinX) / gridCellSize);
+  const rows = Math.ceil((gridMaxY - gridMinY) / gridCellSize);
+  const includedGridKeys = new Set<string>();
 
-  return bands.map((band) => {
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < cols; col += 1) {
+      const cellMinX = gridMinX + col * gridCellSize;
+      const cellMinY = gridMinY + row * gridCellSize;
+      const cellMaxX = Math.min(cellMinX + gridCellSize, gridMaxX);
+      const cellMaxY = Math.min(cellMinY + gridCellSize, gridMaxY);
+      const center: FencePosition = [(cellMinX + cellMaxX) / 2, (cellMinY + cellMaxY) / 2];
+
+      if (isPointInFence(center, fenceRings)) {
+        includedGridKeys.add(`${row}:${col}`);
+      }
+    }
+  }
+
+  let maskedPixelCount = 0;
+
+  const maskedBands = bands.map((band) => {
     const TypedArrayConstructor = getTypedArrayConstructor(band);
     const clonedBand = new TypedArrayConstructor(band.length);
     clonedBand.set(band);
@@ -145,8 +343,17 @@ export function applyFenceNoDataMask<T extends SupportedRasterArray>(input: {
           origin,
           resolution,
         );
+        const gridCol = Math.floor((centerX - gridMinX) / gridCellSize);
+        const gridRow = Math.floor((centerY - gridMinY) / gridCellSize);
+        const gridKey = `${gridRow}:${gridCol}`;
 
-        if (!isPointInFence([centerX, centerY], fenceRings)) {
+        if (
+          gridCol < 0 ||
+          gridCol >= cols ||
+          gridRow < 0 ||
+          gridRow >= rows ||
+          !includedGridKeys.has(gridKey)
+        ) {
           clonedBand[row * width + col] = noDataValue;
         }
       }
@@ -154,6 +361,19 @@ export function applyFenceNoDataMask<T extends SupportedRasterArray>(input: {
 
     return clonedBand;
   });
+
+  if (maskedBands[0]) {
+    for (let pixelIndex = 0; pixelIndex < maskedBands[0].length; pixelIndex += 1) {
+      if (maskedBands[0][pixelIndex] === noDataValue && bands[0]?.[pixelIndex] !== noDataValue) {
+        maskedPixelCount += 1;
+      }
+    }
+  }
+
+  return {
+    bands: maskedBands,
+    maskedPixelCount,
+  };
 }
 
 export function buildGeoTiffExportMetadata(input: {

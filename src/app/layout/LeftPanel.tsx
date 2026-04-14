@@ -148,6 +148,7 @@ export function LeftPanel() {
       const { blob, filename } = await exportFenceGeoTiff({
         file: sourceFile,
         fence,
+        gridCellSize: cellSize,
       });
       await downloadExportedGeoTiff(blob, filename);
       setGeoTiffExportMessage('GeoTIFF 导出完成');
@@ -390,7 +391,7 @@ export function LeftPanel() {
                 return;
               }
 
-              downloadGeoJson(createGridGeoJson(gridCells, gridSummary), 'grid-preview.geojson');
+              downloadGeoJson(createGridGeoJson(gridCells, gridSummary), 'grid.geojson');
             }}
           >
             导出网格

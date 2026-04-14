@@ -1,32 +1,11 @@
-import { fromArrayBuffer, writeArrayBuffer } from 'geotiff';
-
 import {
-  applyFenceNoDataMask,
-  buildGeoTiffExportMetadata,
-  getPixelWindowFromFenceBoundingBox,
+  applyGridAggregationToFenceWindowBands,
   pickExportNoDataValue,
+  readGeoTiffFenceWindow,
 } from '@/shared/geo/geotiffExport';
-import { readBlobBuffer } from '@/shared/geo/raster';
+import { writeGeoTiffBuffer } from '@/shared/geo/geotiffWriter';
 import type { FenceFeature } from '@/shared/types/fence';
 import type { RasterOrigin, RasterResolution } from '@/shared/types/raster';
-
-type SupportedRasterArray =
-  | Uint8Array
-  | Uint16Array
-  | Uint32Array
-  | Int8Array
-  | Int16Array
-  | Int32Array
-  | Float32Array
-  | Float64Array;
-
-function normalizeRasterBands(rasters: unknown): SupportedRasterArray[] {
-  if (!Array.isArray(rasters)) {
-    throw new Error('GeoTIFF 栅格窗口读取结果无效');
-  }
-
-  return rasters as SupportedRasterArray[];
-}
 
 function buildDefaultExportFilename(sourceName: string): string {
   return sourceName.replace(/(\.tiff?)?$/i, '-clipped.tif');
@@ -57,42 +36,34 @@ function toBlobPart(buffer: ArrayBuffer | ArrayBufferView): BlobPart {
 export async function exportFenceGeoTiff(input: {
   file: File;
   fence: FenceFeature;
+  gridCellSize: number;
   filename?: string;
 }): Promise<{ blob: Blob; filename: string }> {
-  const { file, fence, filename } = input;
-  const arrayBuffer = await readBlobBuffer(file);
-  const tiff = await fromArrayBuffer(arrayBuffer);
-  const image = await tiff.getImage();
-  const origin = image.getOrigin() as RasterOrigin;
-  const resolution = image.getResolution() as RasterResolution;
-  const window = getPixelWindowFromFenceBoundingBox({
-    bbox: fence.summary.bbox,
-    rasterWidth: image.getWidth(),
-    rasterHeight: image.getHeight(),
+  const { file, fence, gridCellSize, filename } = input;
+  const fenceWindow = await readGeoTiffFenceWindow({
+    file,
+    fenceRings: fence.geometry.coordinates,
+  });
+  const {
+    bands,
+    window,
+    width: clippedWidth,
+    height: clippedHeight,
     origin,
     resolution,
-  });
-  const bands = normalizeRasterBands(
-    await image.readRasters({
-      window,
-      interleave: false,
-    }),
-  );
-  const bitsPerSample = Array.from({ length: image.getSamplesPerPixel() }, (_, index) =>
-    image.getBitsPerSample(index),
-  );
-  const sampleFormat = Array.from({ length: image.getSamplesPerPixel() }, (_, index) =>
-    image.getSampleFormat(index),
-  );
-  const noDataValue = pickExportNoDataValue({
-    sourceNoDataValue: image.getGDALNoData(),
+    sourceNoDataValue,
+    bitsPerSample,
+    sampleFormat,
+    samplesPerPixel,
+    fileDirectory,
+  } = fenceWindow;
+  const exportNoDataValue = pickExportNoDataValue({
+    sourceNoDataValue,
     sampleFormat,
     bitsPerSample,
     bands,
   });
-  const clippedWidth = window[2] - window[0];
-  const clippedHeight = window[3] - window[1];
-  const maskedBands = applyFenceNoDataMask({
+  const masked = applyGridAggregationToFenceWindowBands({
     bands,
     window,
     width: clippedWidth,
@@ -100,21 +71,43 @@ export async function exportFenceGeoTiff(input: {
     origin,
     resolution,
     fenceRings: fence.geometry.coordinates,
-    noDataValue,
+    gridCellSize,
+    sourceNoDataValue,
+    noDataValue: exportNoDataValue,
   });
-  const metadata = buildGeoTiffExportMetadata({
+  const [croppedOriginX, croppedOriginY, croppedOriginZ = 0] = buildWindowOrigin(
+    window,
+    origin,
+    resolution,
+  );
+  const encoded = writeGeoTiffBuffer({
     width: clippedWidth,
     height: clippedHeight,
-    origin: buildWindowOrigin(window, origin, resolution),
-    resolution,
+    bands: masked.bands,
     bitsPerSample,
     sampleFormat,
-    samplesPerPixel: image.getSamplesPerPixel(),
-    geoKeys: image.getGeoKeys(),
-    noDataValue,
-    photometricInterpretation: image.getFileDirectory().PhotometricInterpretation,
+    samplesPerPixel,
+    photometricInterpretation:
+      typeof fileDirectory.PhotometricInterpretation === 'number'
+        ? fileDirectory.PhotometricInterpretation
+        : undefined,
+    modelPixelScale: Array.isArray(fileDirectory.ModelPixelScale)
+      ? (fileDirectory.ModelPixelScale as number[])
+      : [Math.abs(resolution[0]), Math.abs(resolution[1]), 0],
+    modelTiepoint: [0, 0, 0, croppedOriginX, croppedOriginY, croppedOriginZ],
+    geoKeyDirectory: Array.isArray(fileDirectory.GeoKeyDirectory)
+      ? (fileDirectory.GeoKeyDirectory as number[])
+      : undefined,
+    geoAsciiParams:
+      typeof fileDirectory.GeoAsciiParams === 'string' ? fileDirectory.GeoAsciiParams : undefined,
+    geoDoubleParams: Array.isArray(fileDirectory.GeoDoubleParams)
+      ? (fileDirectory.GeoDoubleParams as number[])
+      : undefined,
+    gdalNoData:
+      (sourceNoDataValue !== null && Number.isFinite(sourceNoDataValue)) || masked.maskedPixelCount > 0
+        ? String(sourceNoDataValue ?? exportNoDataValue)
+        : undefined,
   });
-  const encoded = writeArrayBuffer(maskedBands, metadata);
 
   return {
     blob: new Blob([toBlobPart(encoded)], { type: 'image/tiff' }),

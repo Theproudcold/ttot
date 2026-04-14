@@ -74,6 +74,38 @@ describe('useMapUiStore', () => {
       inValidityMask: true,
       inFence: false,
       gridCellId: 'r10-c20',
+      gridMeanValue: null,
+      gridValidPixelCount: null,
+    });
+  });
+
+  it('normalizes omitted grid aggregation hover fields to null for legacy callers', () => {
+    act(() => {
+      useMapUiStore.getState().setHoverInfo({
+        coordinate: [1, 2],
+        pixel: { row: 3, col: 4 },
+        sampleValues: [5],
+        classificationLayerName: null,
+        classificationLabel: null,
+        classificationColor: null,
+        inValidityMask: null,
+        inFence: true,
+        gridCellId: null,
+      });
+    });
+
+    expect(useMapUiStore.getState().hoverInfo).toEqual({
+      coordinate: [1, 2],
+      pixel: { row: 3, col: 4 },
+      sampleValues: [5],
+      classificationLayerName: null,
+      classificationLabel: null,
+      classificationColor: null,
+      inValidityMask: null,
+      inFence: true,
+      gridCellId: null,
+      gridMeanValue: null,
+      gridValidPixelCount: null,
     });
   });
 
