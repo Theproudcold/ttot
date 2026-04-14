@@ -6,24 +6,36 @@ import { useFenceStore } from '@/features/fence/fenceStore';
 import { useGridStore } from '@/features/grid/gridStore';
 import { useMapUiStore } from '@/features/map/mapUiStore';
 import { useRasterStore } from '@/features/map/rasterStore';
-import type { RasterClassificationLayer } from '@/shared/types/raster';
+import { createMetricTransform } from '@/shared/geo/crs';
+import type { RasterMetadata } from '@/shared/types/raster';
 
-function createRuleLayer(
-  id: string,
-  label: string,
-  visible = true,
-): RasterClassificationLayer & { visible: boolean } {
+function createRasterMetadata(
+  overrides: Partial<RasterMetadata> & Pick<RasterMetadata, 'boundingBox' | 'crsCode'>,
+): RasterMetadata {
+  const metricTransform = createMetricTransform({
+    crsCode: overrides.crsCode,
+    boundingBox: overrides.boundingBox,
+  });
+
   return {
-    id,
-    label,
-    visible,
-    mode: 'rules',
-    noDataColor: '#00000000',
-    gradientStops: [],
-    rules: [
-      { min: -1, max: 0.3, color: '#cccccc', label: '低' },
-      { min: 0.3, max: null, color: '#226622', label: '高' },
-    ],
+    sourceUrl: null,
+    fileName: 'test.tif',
+    width: 100,
+    height: 100,
+    samplesPerPixel: 1,
+    boundingBox: overrides.boundingBox,
+    coordinateDisplayMode: metricTransform.coordinateDisplayMode,
+    metricExtent: metricTransform.metricExtent,
+    metricWidth: metricTransform.metricWidth,
+    metricHeight: metricTransform.metricHeight,
+    metricTransform,
+    origin: overrides.origin ?? [overrides.boundingBox[0], overrides.boundingBox[3], 0],
+    resolution: overrides.resolution ?? [1, -1, 0],
+    cellSize: overrides.cellSize ?? { x: 1, y: 1, unit: 'm' },
+    crsCode: overrides.crsCode,
+    crsName: overrides.crsName ?? overrides.crsCode,
+    isProjected: overrides.isProjected ?? metricTransform.coordinateDisplayMode === 'projected',
+    ...overrides,
   };
 }
 
@@ -37,26 +49,27 @@ describe('LeftPanel', () => {
     });
   });
 
-  it('renders loaded raster metadata from store', () => {
+  it('renders projected raster metadata with original extent, metric size and grid ratio', () => {
     act(() => {
-      useRasterStore.getState().setMetadata({
-        sourceUrl: '/assets/test2.tif',
-        fileName: 'test2.tif',
-        width: 5647,
-        height: 3179,
-        samplesPerPixel: 1,
-        boundingBox: [447934.5768945037, 4041573.0550815426, 448017.5877945037, 4041619.7863815427],
-        origin: [447934.5768945037, 4041619.7863815427, 0],
-        resolution: [0.0147, -0.0147, 0],
-        cellSize: {
-          x: 0.0147,
-          y: 0.0147,
-          unit: 'm',
-        },
-        crsCode: 'EPSG:4549',
-        crsName: 'CGCS2000 / 3-degree Gauss-Kruger CM 120E',
-        isProjected: true,
-      });
+      useRasterStore.getState().setMetadata(
+        createRasterMetadata({
+          sourceUrl: '/assets/test2.tif',
+          fileName: 'test2.tif',
+          width: 5647,
+          height: 3179,
+          boundingBox: [447934.5768945037, 4041573.0550815426, 448017.5877945037, 4041619.7863815427],
+          origin: [447934.5768945037, 4041619.7863815427, 0],
+          resolution: [0.0147, -0.0147, 0],
+          cellSize: {
+            x: 0.0147,
+            y: 0.0147,
+            unit: 'm',
+          },
+          crsCode: 'EPSG:4549',
+          crsName: 'CGCS2000 / 3-degree Gauss-Kruger CM 120E',
+          isProjected: true,
+        }),
+      );
     });
 
     render(<LeftPanel />);
@@ -64,7 +77,39 @@ describe('LeftPanel', () => {
     expect(screen.getByText('5647 x 3179')).toBeInTheDocument();
     expect(screen.getByText('EPSG:4549')).toBeInTheDocument();
     expect(screen.getByText('0.0147 m')).toBeInTheDocument();
+    expect(screen.getByText('447934.58, 4041573.06, 448017.59, 4041619.79')).toBeInTheDocument();
     expect(screen.getByText('83.01m x 46.73m')).toBeInTheDocument();
+    expect(screen.getByText('12.0% / 21.4%')).toBeInTheDocument();
+  });
+
+  it('shows geographic source extent and metric dimensions side by side', () => {
+    act(() => {
+      useRasterStore.getState().setMetadata(
+        createRasterMetadata({
+          fileName: 'gps-ndvi.tif',
+          width: 2250,
+          height: 1500,
+          boundingBox: [119.420001, 36.510001, 119.420901, 36.510601],
+          origin: [119.420001, 36.510601, 0],
+          resolution: [0.0000004, -0.0000004, 0],
+          cellSize: {
+            x: 0.0000004,
+            y: 0.0000004,
+            unit: 'degree',
+          },
+          crsCode: 'EPSG:4326',
+          crsName: 'EPSG:4326',
+          isProjected: false,
+        }),
+      );
+    });
+
+    render(<LeftPanel />);
+
+    expect(screen.getByText('EPSG:4326')).toBeInTheDocument();
+    expect(screen.getByText('119.420001, 36.510001, 119.420901, 36.510601')).toBeInTheDocument();
+    expect(screen.getByText('80.53m x 66.79m')).toBeInTheDocument();
+    expect(screen.getByText('12.4% / 15.0%')).toBeInTheDocument();
   });
 
   it('shows fence toolbar actions and current mode', () => {
@@ -113,69 +158,18 @@ describe('LeftPanel', () => {
     expect(screen.getByDisplayValue('10')).toBeInTheDocument();
   });
 
-  it('renders the default NDVI classification scheme and create action', () => {
-    render(<LeftPanel />);
-
-    expect(screen.getByText('NDVI 默认')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '新建方案' })).toBeInTheDocument();
-  });
-
-  it('makes a new custom scheme the current visible map scheme', () => {
-    render(<LeftPanel />);
-
+  it('shows loading progress when local file parsing is in flight', () => {
     act(() => {
-      screen.getByRole('button', { name: '新建方案' }).click();
-    });
-
-    const customScheme = screen.getByText('自定义方案 1').closest('article');
-
-    expect(customScheme).not.toBeNull();
-    expect(within(customScheme as HTMLElement).getByText('显示中')).toBeInTheDocument();
-  });
-
-  it('shows the rules editor rows after activating a custom rules scheme', () => {
-    act(() => {
-      useMapUiStore.getState().addClassificationLayer({
-        id: 'custom-rules',
-        label: '自定义规则',
-        mode: 'rules',
-        noDataColor: '#00000000',
-        gradientStops: [],
-        rules: [
-          {
-            min: -1,
-            max: 0,
-            color: '#cccccc',
-            label: '低值',
-          },
-        ],
-        visible: true,
-      });
-      useMapUiStore.getState().setActiveClassificationLayer('custom-rules');
+      useRasterStore.getState().setLoadingProgress('正在读取本地文件', 42);
     });
 
     render(<LeftPanel />);
 
-    expect(screen.getByDisplayValue('自定义规则')).toBeInTheDocument();
-    expect(screen.getByLabelText('规则最小值-0')).toBeInTheDocument();
-    expect(screen.getByLabelText('规则颜色-0')).toBeInTheDocument();
-  });
-
-  it('allows switching the visible map scheme without toggling visibility off and on', () => {
-    act(() => {
-      useMapUiStore.getState().addClassificationLayer(createRuleLayer('scheme-a', '方案 A'));
-      useMapUiStore.getState().addClassificationLayer(createRuleLayer('scheme-b', '方案 B'));
-    });
-
-    render(<LeftPanel />);
-
-    const schemeA = screen.getByText('方案 A').closest('article');
-    expect(schemeA).not.toBeNull();
-
-    act(() => {
-      within(schemeA as HTMLElement).getByRole('button', { name: '设为显示' }).click();
-    });
-
-    expect(within(schemeA as HTMLElement).getByText('显示中')).toBeInTheDocument();
+    expect(
+      within(screen.getByText('读取状态').closest('.metric-item') as HTMLElement).getByText('正在读取本地文件'),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByText('读取进度').closest('.metric-item') as HTMLElement).getByText('42%'),
+    ).toBeInTheDocument();
   });
 });

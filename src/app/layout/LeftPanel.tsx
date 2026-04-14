@@ -10,7 +10,7 @@ import { useFenceStore } from '@/features/fence/fenceStore';
 import { useGridStore } from '@/features/grid/gridStore';
 import { useMapUiStore } from '@/features/map/mapUiStore';
 import { useRasterStore } from '@/features/map/rasterStore';
-import type { RasterClassificationMode, RasterRuleClassificationLayer } from '@/shared/types/raster';
+import type { RasterMetadata } from '@/shared/types/raster';
 
 function formatCellSize(value: number, unit: string): string {
   if (!value) {
@@ -20,77 +20,35 @@ function formatCellSize(value: number, unit: string): string {
   return `${value.toFixed(4)} ${unit}`;
 }
 
-function formatRasterPhysicalSize(bbox: [number, number, number, number] | null | undefined): string {
-  if (!bbox) {
+function getCoordinateDecimals(metadata: RasterMetadata | null | undefined): number {
+  return metadata?.coordinateDisplayMode === 'geographic' ? 6 : 2;
+}
+
+function formatSourceExtent(metadata: RasterMetadata | null | undefined): string {
+  if (!metadata) {
     return '--';
   }
 
-  const width = bbox[2] - bbox[0];
-  const height = bbox[3] - bbox[1];
-  return `${width.toFixed(2)}m x ${height.toFixed(2)}m`;
+  const decimals = getCoordinateDecimals(metadata);
+  return metadata.boundingBox.map((value) => value.toFixed(decimals)).join(', ');
 }
 
-function formatClassificationMode(mode: RasterClassificationMode): string {
-  return mode === 'gradient' ? '渐变' : '规则';
-}
-
-function createClassificationLayerId(existingIds: string[]): string {
-  let index = 1;
-  let nextId = `classification-rules-${index}`;
-
-  while (existingIds.includes(nextId)) {
-    index += 1;
-    nextId = `classification-rules-${index}`;
+function formatRasterPhysicalSize(metadata: RasterMetadata | null | undefined): string {
+  if (!metadata) {
+    return '--';
   }
 
-  return nextId;
+  return `${metadata.metricWidth.toFixed(2)}m x ${metadata.metricHeight.toFixed(2)}m`;
 }
 
-function createClassificationLayerLabel(existingLabels: string[]): string {
-  let index = 1;
-  let nextLabel = `自定义方案 ${index}`;
-
-  while (existingLabels.includes(nextLabel)) {
-    index += 1;
-    nextLabel = `自定义方案 ${index}`;
+function formatGridRatio(cellSize: number, metadata: RasterMetadata | null | undefined): string {
+  if (!metadata || cellSize <= 0 || metadata.metricWidth <= 0 || metadata.metricHeight <= 0) {
+    return '--';
   }
 
-  return nextLabel;
-}
-
-function buildNewRulesClassificationLayer(
-  existingIds: string[],
-  existingLabels: string[],
-): RasterRuleClassificationLayer & { visible: boolean } {
-  return {
-    id: createClassificationLayerId(existingIds),
-    label: createClassificationLayerLabel(existingLabels),
-    mode: 'rules',
-    noDataColor: '#00000000',
-    gradientStops: [],
-    rules: [
-      {
-        min: -1,
-        max: 0,
-        color: '#cccccc',
-        label: '规则 1',
-      },
-    ],
-    visible: true,
-  };
-}
-
-function updateRuleTuple(
-  rules: RasterRuleClassificationLayer['rules'],
-  ruleIndex: number,
-  updater: (rule: RasterRuleClassificationLayer['rules'][number]) => RasterRuleClassificationLayer['rules'][number],
-): RasterRuleClassificationLayer['rules'] {
-  const [firstRule, ...restRules] = rules;
-
-  return [
-    ruleIndex === 0 ? updater(firstRule) : firstRule,
-    ...restRules.map((rule, index) => (index + 1 === ruleIndex ? updater(rule) : rule)),
-  ] as RasterRuleClassificationLayer['rules'];
+  const widthRatio = (cellSize / metadata.metricWidth) * 100;
+  const heightRatio = (cellSize / metadata.metricHeight) * 100;
+  return `${widthRatio.toFixed(1)}% / ${heightRatio.toFixed(1)}%`;
 }
 
 export function LeftPanel() {
@@ -101,20 +59,7 @@ export function LeftPanel() {
   const selectFile = useRasterStore((state) => state.selectFile);
   const resetRaster = useRasterStore((state) => state.reset);
   const resetMapUi = useMapUiStore((state) => state.reset);
-  const classificationLayers = useMapUiStore((state) => state.classificationLayers);
-  const activeClassificationLayerId = useMapUiStore((state) => state.activeClassificationLayerId);
-  const visibleClassificationLayerId = useMapUiStore((state) => state.visibleClassificationLayerId);
-  const addClassificationLayer = useMapUiStore((state) => state.addClassificationLayer);
-  const updateClassificationLayer = useMapUiStore((state) => state.updateClassificationLayer);
-  const duplicateClassificationLayer = useMapUiStore((state) => state.duplicateClassificationLayer);
-  const deleteClassificationLayer = useMapUiStore((state) => state.deleteClassificationLayer);
-  const setActiveClassificationLayer = useMapUiStore((state) => state.setActiveClassificationLayer);
-  const setVisibleClassificationLayer = useMapUiStore((state) => state.setVisibleClassificationLayer);
-  const toggleClassificationLayerVisibility = useMapUiStore(
-    (state) => state.toggleClassificationLayerVisibility,
-  );
   const metadata = useRasterStore((state) => state.metadata);
-  const preview = useRasterStore((state) => state.preview);
   const status = useRasterStore((state) => state.status);
   const validityStatus = useRasterStore((state) => state.validityStatus);
   const loadingProgress = useRasterStore((state) => state.loadingProgress);
@@ -130,7 +75,9 @@ export function LeftPanel() {
   const gridCells = useGridStore((state) => state.cells);
   const setCellSize = useGridStore((state) => state.setCellSize);
   const resetGrid = useGridStore((state) => state.reset);
-  const singleBandRange = preview?.sampleRanges?.[0] ?? null;
+
+  const classificationLayers = useMapUiStore((state) => state.classificationLayers);
+  const activeClassificationLayerId = useMapUiStore((state) => state.activeClassificationLayerId);
   const activeClassificationLayer =
     classificationLayers.find((layer) => layer.id === activeClassificationLayerId) ??
     classificationLayers[0] ??
@@ -144,11 +91,15 @@ export function LeftPanel() {
     setIsExportingGeoTiff(true);
     setGeoTiffExportMessage(null);
 
+    const isDegree = metadata?.cellSize.unit === 'degree';
+
     try {
       const { blob, filename } = await exportFenceGeoTiff({
         file: sourceFile,
         fence,
         gridCellSize: cellSize,
+        isDegree,
+        activeClassificationLayer, // 往下穿透
       });
       await downloadExportedGeoTiff(blob, filename);
       setGeoTiffExportMessage('GeoTIFF 导出完成');
@@ -158,59 +109,6 @@ export function LeftPanel() {
     } finally {
       setIsExportingGeoTiff(false);
     }
-  };
-
-  const createClassificationLayer = () => {
-    const nextLayer = buildNewRulesClassificationLayer(
-      classificationLayers.map((layer) => layer.id),
-      classificationLayers.map((layer) => layer.label),
-    );
-
-    addClassificationLayer(nextLayer);
-    setActiveClassificationLayer(nextLayer.id);
-    setVisibleClassificationLayer(nextLayer.id);
-  };
-
-  const updateRuleField = (
-    ruleIndex: number,
-    field: 'min' | 'max' | 'color' | 'label',
-    value: number | string | null,
-  ) => {
-    if (!activeClassificationLayer || activeClassificationLayer.mode !== 'rules') {
-      return;
-    }
-
-    const nextRules = updateRuleTuple(activeClassificationLayer.rules, ruleIndex, (rule) => {
-      if (field === 'min') {
-        return {
-          ...rule,
-          min: typeof value === 'number' ? value : rule.min,
-        };
-      }
-
-      if (field === 'max') {
-        return {
-          ...rule,
-          max: typeof value === 'number' || value === null ? value : rule.max,
-        };
-      }
-
-      if (field === 'color') {
-        return {
-          ...rule,
-          color: typeof value === 'string' ? value : rule.color,
-        };
-      }
-
-      return {
-        ...rule,
-        label: typeof value === 'string' ? value : rule.label,
-      };
-    });
-
-    updateClassificationLayer(activeClassificationLayer.id, {
-      rules: nextRules,
-    });
   };
 
   return (
@@ -291,8 +189,16 @@ export function LeftPanel() {
             <dd>{metadata ? formatCellSize(metadata.cellSize.x, metadata.cellSize.unit) : '--'}</dd>
           </div>
           <div className="metric-item">
+            <dt className="metric-label">原始范围</dt>
+            <dd>{formatSourceExtent(metadata)}</dd>
+          </div>
+          <div className="metric-item">
             <dt className="metric-label">实际尺寸</dt>
-            <dd>{formatRasterPhysicalSize(metadata?.boundingBox)}</dd>
+            <dd>{formatRasterPhysicalSize(metadata)}</dd>
+          </div>
+          <div className="metric-item">
+            <dt className="metric-label">网格比例</dt>
+            <dd>{formatGridRatio(cellSize, metadata)}</dd>
           </div>
           <div className="metric-item">
             <dt className="metric-label">网格单位</dt>
@@ -391,7 +297,7 @@ export function LeftPanel() {
                 return;
               }
 
-              downloadGeoJson(createGridGeoJson(gridCells, gridSummary), 'grid.geojson');
+              downloadGeoJson(createGridGeoJson(gridCells, gridSummary, activeClassificationLayer), 'grid.geojson');
             }}
           >
             导出网格
@@ -408,220 +314,6 @@ export function LeftPanel() {
           </button>
         </div>
         {geoTiffExportMessage ? <p className="toolbar-hint">{geoTiffExportMessage}</p> : null}
-      </div>
-
-      <h3>分类方案</h3>
-      <div className="card">
-        <div className="classification-card__section">
-          <div className="classification-card__header">
-            <div>
-              <p className="classification-card__title">方案列表</p>
-              <p className="classification-card__subtitle">切换当前方案，并决定哪些方案处于可见状态。</p>
-            </div>
-            <button type="button" className="toolbar-button" onClick={createClassificationLayer}>
-              新建方案
-            </button>
-          </div>
-
-          <div className="classification-list" role="list" aria-label="分类方案列表">
-            {classificationLayers.map((layer) => {
-              const isActive = layer.id === activeClassificationLayer?.id;
-              const isVisible = layer.visible;
-              const isPrimaryVisible = layer.id === visibleClassificationLayerId;
-
-              return (
-                <article
-                  key={layer.id}
-                  className={`classification-item${isActive ? ' classification-item--active' : ''}`}
-                  role="listitem"
-                >
-                  <div className="classification-item__main">
-                    <div>
-                      <div className="classification-item__title-row">
-                        <strong className="classification-item__title">{layer.label}</strong>
-                        <span className="classification-item__tag">{formatClassificationMode(layer.mode)}</span>
-                        {isPrimaryVisible ? (
-                          <span className="classification-item__status">显示中</span>
-                        ) : null}
-                      </div>
-                      <p className="classification-item__meta">
-                        {isActive ? '当前正在编辑' : '点击设为当前以编辑此方案'}
-                      </p>
-                    </div>
-                    <label className="classification-item__toggle">
-                      <input
-                        type="checkbox"
-                        className="modern-toggle"
-                        checked={isVisible}
-                        onChange={() => {
-                          toggleClassificationLayerVisibility(layer.id);
-                        }}
-                      />
-                      <span>可见</span>
-                    </label>
-                  </div>
-                  <div className="classification-item__actions">
-                    <button
-                      type="button"
-                      className="toolbar-button toolbar-button--ghost"
-                      onClick={() => {
-                        setActiveClassificationLayer(layer.id);
-                      }}
-                      disabled={isActive}
-                    >
-                      设为当前
-                    </button>
-                    <button
-                      type="button"
-                      className="toolbar-button toolbar-button--ghost"
-                      onClick={() => {
-                        setVisibleClassificationLayer(layer.id);
-                      }}
-                      disabled={isPrimaryVisible}
-                    >
-                      设为显示
-                    </button>
-                    <button
-                      type="button"
-                      className="toolbar-button toolbar-button--ghost"
-                      onClick={() => {
-                        const duplicatedLayerId = duplicateClassificationLayer(layer.id);
-                        if (duplicatedLayerId) {
-                          setActiveClassificationLayer(duplicatedLayerId);
-                          setVisibleClassificationLayer(duplicatedLayerId);
-                        }
-                      }}
-                    >
-                      复制方案
-                    </button>
-                    <button
-                      type="button"
-                      className="toolbar-button toolbar-button--ghost"
-                      onClick={() => {
-                        deleteClassificationLayer(layer.id);
-                      }}
-                      disabled={classificationLayers.length <= 1}
-                    >
-                      删除方案
-                    </button>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="classification-card__divider" />
-
-        <div className="classification-card__section">
-          <div className="classification-card__header">
-            <div>
-              <p className="classification-card__title">当前方案编辑器</p>
-              <p className="classification-card__subtitle">这里只做最小可用编辑，不抢后面任务的戏。</p>
-            </div>
-          </div>
-
-          {activeClassificationLayer ? (
-            <>
-              <label className="field-label" htmlFor="classification-layer-name">
-                方案名称
-              </label>
-              <input
-                id="classification-layer-name"
-                className="field-input"
-                type="text"
-                value={activeClassificationLayer.label}
-                onChange={(event) => {
-                  updateClassificationLayer(activeClassificationLayer.id, {
-                    label: event.target.value,
-                  });
-                }}
-              />
-
-              {activeClassificationLayer.mode === 'gradient' ? (
-                <>
-                  <p className="toolbar-hint">
-                    {singleBandRange
-                      ? `范围提示：当前采样约 ${singleBandRange.min.toFixed(2)} ~ ${singleBandRange.max.toFixed(2)}。`
-                      : '范围提示：暂无采样范围，后续按影像预览数据补充。'}
-                  </p>
-                  <p className="classification-editor__note">
-                    当前为渐变方案骨架，先提供名称和范围提示，别把停靠点编辑器硬塞进来。
-                  </p>
-                </>
-              ) : (
-                <div className="classification-rules">
-                  {activeClassificationLayer.rules.map((rule, index) => (
-                    <div key={`${activeClassificationLayer.id}-rule-${index}`} className="classification-rule">
-                      <div className="classification-rule__header">
-                        <strong>{`规则 ${index + 1}`}</strong>
-                        <span className="classification-item__tag">rules</span>
-                      </div>
-                      <div className="classification-rule__grid">
-                        <input
-                          aria-label={`规则最小值-${index}`}
-                          className="field-input"
-                          type="number"
-                          step="0.1"
-                          value={rule.min}
-                          onChange={(event) => {
-                            const nextValue = Number(event.target.value);
-                            if (!Number.isFinite(nextValue)) {
-                              return;
-                            }
-
-                            updateRuleField(index, 'min', nextValue);
-                          }}
-                        />
-                        <input
-                          aria-label={`规则最大值-${index}`}
-                          className="field-input"
-                          type="number"
-                          step="0.1"
-                          placeholder="无上限"
-                          value={rule.max ?? ''}
-                          onChange={(event) => {
-                            if (event.target.value === '') {
-                              updateRuleField(index, 'max', null);
-                              return;
-                            }
-
-                            const nextValue = Number(event.target.value);
-                            if (!Number.isFinite(nextValue)) {
-                              return;
-                            }
-
-                            updateRuleField(index, 'max', nextValue);
-                          }}
-                        />
-                        <input
-                          aria-label={`规则颜色-${index}`}
-                          className="field-input classification-rule__color"
-                          type="color"
-                          value={rule.color}
-                          onChange={(event) => {
-                            updateRuleField(index, 'color', event.target.value);
-                          }}
-                        />
-                        <input
-                          aria-label={`规则标签-${index}`}
-                          className="field-input"
-                          type="text"
-                          value={rule.label}
-                          onChange={(event) => {
-                            updateRuleField(index, 'label', event.target.value);
-                          }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          ) : (
-            <p className="toolbar-hint">暂无可编辑方案。</p>
-          )}
-        </div>
       </div>
     </aside>
   );

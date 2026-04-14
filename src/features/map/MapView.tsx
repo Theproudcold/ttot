@@ -39,6 +39,8 @@ export function MapView() {
     classificationLayers,
     visibleClassificationLayerId,
   );
+  
+  const decimals = metadata?.coordinateDisplayMode === 'geographic' ? 6 : 2;
   const legendData =
     preview?.sampleBandCount === 1 && visibleClassificationLayer
       ? buildRasterClassificationLegendData(visibleClassificationLayer)
@@ -95,7 +97,7 @@ export function MapView() {
         </div>
         {hoverInfo ? (
           <div className="hover-card" aria-label="hover-card">
-            <div>{`坐标：${hoverInfo.coordinate[0].toFixed(2)}, ${hoverInfo.coordinate[1].toFixed(2)}`}</div>
+            <div>{`坐标：${hoverInfo.coordinate[0].toFixed(decimals)}, ${hoverInfo.coordinate[1].toFixed(decimals)}`}</div>
             <div>{`像元：${hoverInfo.pixel.row} / ${hoverInfo.pixel.col}`}</div>
             <div>
               {`像元值：${

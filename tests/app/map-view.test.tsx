@@ -6,8 +6,9 @@ import { useFenceStore } from '@/features/fence/fenceStore';
 import { useMapUiStore } from '@/features/map/mapUiStore';
 import { useRasterStore } from '@/features/map/rasterStore';
 import { getGridCellStyleColors, scheduleMapResizeFrame } from '@/features/map/useMap';
+import { createMetricTransform } from '@/shared/geo/crs';
 import type { GridCell } from '@/shared/types/grid';
-import type { RasterClassificationLayer } from '@/shared/types/raster';
+import type { RasterClassificationLayer, RasterMetadata } from '@/shared/types/raster';
 
 function createRulesClassificationLayer(): RasterClassificationLayer & { visible: boolean } {
   return {
@@ -50,6 +51,36 @@ function createGridCell(outputValue: number | null): GridCell {
       meanValue: outputValue,
       outputValue,
     },
+  };
+}
+
+function createRasterMetadata(
+  overrides: Partial<RasterMetadata> & Pick<RasterMetadata, 'boundingBox' | 'crsCode'>,
+): RasterMetadata {
+  const metricTransform = createMetricTransform({
+    crsCode: overrides.crsCode,
+    boundingBox: overrides.boundingBox,
+  });
+
+  return {
+    sourceUrl: null,
+    fileName: 'test.tif',
+    width: 100,
+    height: 100,
+    samplesPerPixel: 1,
+    boundingBox: overrides.boundingBox,
+    coordinateDisplayMode: metricTransform.coordinateDisplayMode,
+    metricExtent: metricTransform.metricExtent,
+    metricWidth: metricTransform.metricWidth,
+    metricHeight: metricTransform.metricHeight,
+    metricTransform,
+    origin: overrides.origin ?? [overrides.boundingBox[0], overrides.boundingBox[3], 0],
+    resolution: overrides.resolution ?? [1, -1, 0],
+    cellSize: overrides.cellSize ?? { x: 1, y: 1, unit: 'm' },
+    crsCode: overrides.crsCode,
+    crsName: overrides.crsName ?? overrides.crsCode,
+    isProjected: overrides.isProjected ?? metricTransform.coordinateDisplayMode === 'projected',
+    ...overrides,
   };
 }
 
@@ -128,8 +159,19 @@ describe('MapView', () => {
     expect(visibleColors.fillColor).toBe('#1f7a1f');
   });
 
-  it('renders hover info card when pointer diagnostics exist', () => {
+  it('renders hover info card with projected coordinates using two decimals', () => {
     act(() => {
+      useRasterStore.getState().setMetadata(
+        createRasterMetadata({
+          fileName: 'test2.tif',
+          boundingBox: [447934.5768945037, 4041573.0550815426, 448017.5877945037, 4041619.7863815427],
+          origin: [447934.5768945037, 4041619.7863815427, 0],
+          resolution: [0.0147, -0.0147, 0],
+          cellSize: { x: 0.0147, y: 0.0147, unit: 'm' },
+          crsCode: 'EPSG:4549',
+          isProjected: true,
+        }),
+      );
       useRasterStore.getState().setPreview({
         url: 'data:image/png;base64,preview',
         width: 320,
@@ -159,10 +201,43 @@ describe('MapView', () => {
     expect(screen.getByLabelText('raster-legend')).toBeInTheDocument();
     expect(screen.getByText('NDVI 默认')).toBeInTheDocument();
     expect(screen.getByLabelText('gradient-legend')).toBeInTheDocument();
+    expect(screen.getByText('坐标：447976.08, 4041596.42')).toBeInTheDocument();
     expect(screen.getByText('命中围栏：是')).toBeInTheDocument();
     expect(screen.getByText('命中网格：r10-c20')).toBeInTheDocument();
     expect(screen.getByText('网格均值：0.62')).toBeInTheDocument();
     expect(screen.getByText('有效像元：18')).toBeInTheDocument();
+  });
+
+  it('renders geographic hover coordinates with six decimals', () => {
+    act(() => {
+      useRasterStore.getState().setMetadata(
+        createRasterMetadata({
+          fileName: 'gps-ndvi.tif',
+          boundingBox: [119.420001, 36.510001, 119.420901, 36.510601],
+          origin: [119.420001, 36.510601, 0],
+          resolution: [0.0000004, -0.0000004, 0],
+          cellSize: { x: 0.0000004, y: 0.0000004, unit: 'degree' },
+          crsCode: 'EPSG:4326',
+          isProjected: false,
+        }),
+      );
+      useMapUiStore.getState().setHoverInfo({
+        coordinate: [119.420456, 36.510654],
+        pixel: { row: 3, col: 4 },
+        sampleValues: [0.13],
+        classificationLabel: null,
+        classificationColor: null,
+        inValidityMask: true,
+        inFence: false,
+        gridCellId: null,
+        gridMeanValue: null,
+        gridValidPixelCount: null,
+      });
+    });
+
+    render(<MapView />);
+
+    expect(screen.getByText('坐标：119.420456, 36.510654')).toBeInTheDocument();
   });
 
   it('renders the default NDVI gradient legend with the visible scheme name', () => {

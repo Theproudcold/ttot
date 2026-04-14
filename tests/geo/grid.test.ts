@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { createMetricTransform } from '@/shared/geo/crs';
 import { buildGridPreview } from '@/shared/geo/grid';
 import type { FenceRings } from '@/shared/types/fence';
 import type { GridAggregationResult } from '@/shared/types/grid';
@@ -11,6 +12,16 @@ const RECTANGLE_FENCE: FenceRings = [
     [10, 20],
     [0, 20],
     [0, 0],
+  ],
+];
+
+const GEOGRAPHIC_FENCE: FenceRings = [
+  [
+    [119.420001, 36.510001],
+    [119.420901, 36.510001],
+    [119.420901, 36.510601],
+    [119.420001, 36.510601],
+    [119.420001, 36.510001],
   ],
 ];
 
@@ -85,5 +96,22 @@ describe('buildGridPreview', () => {
     });
     expect(preview.cells[1].aggregation).toBeUndefined();
     expect(preview.summary).not.toHaveProperty('cellsById');
+  });
+
+  it('builds grid cells in geographic rasters using metric cell size rather than degree deltas', () => {
+    const metricTransform = createMetricTransform({
+      crsCode: 'EPSG:4326',
+      boundingBox: [119.420001, 36.510001, 119.420901, 36.510601],
+    });
+
+    const preview = buildGridPreview(GEOGRAPHIC_FENCE, 10, metricTransform);
+
+    expect(preview.summary.cellSize).toBe(10);
+    expect(preview.summary.totalCells).toBe(63);
+    expect(preview.summary.previewCellCount).toBe(63);
+    expect(preview.cells[0]?.center[0]).toBeCloseTo(119.42005688, 6);
+    expect(preview.cells[0]?.center[1]).toBeCloseTo(36.51004584, 6);
+    expect(preview.cells.at(-1)?.center[0]).toBeCloseTo(119.42089806, 6);
+    expect(preview.cells.at(-1)?.center[1]).toBeCloseTo(36.51057049, 6);
   });
 });

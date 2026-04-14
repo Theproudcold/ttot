@@ -16,7 +16,7 @@ import { useFenceStore } from '@/features/fence/fenceStore';
 import { useGridStore } from '@/features/grid/gridStore';
 import { buildMapViewDebugPayload, debugLog, summarizePreviewPayload } from '@/features/map/debugLogger';
 import { useMapUiStore } from '@/features/map/mapUiStore';
-import { ensureProjectionRegistered } from '@/shared/geo/crs';
+import { ensureProjectionRegistered, getDegreeToMeterScale } from '@/shared/geo/crs';
 import { getFenceSummary, isCoordinateInValidityMask, isFenceInsideValidityMask, isPointInFence } from '@/shared/geo/fence';
 import { buildGridAggregationFromFenceWindow, readGeoTiffFenceWindow } from '@/shared/geo/geotiffExport';
 import { buildGridPreview } from '@/shared/geo/grid';
@@ -334,14 +334,16 @@ export function useMap(metadata: RasterMetadata | null) {
     map.addLayer(fenceLayer);
 
     map.on('pointermove', (event) => {
-      const [x, y] = event.coordinate;
-      setPointerText(`${x.toFixed(3)}, ${y.toFixed(3)}`);
-
       const currentMetadata = metadataRef.current;
       const currentPreview = previewRef.current;
       const currentValidityMask = validityMaskRef.current;
       const currentFence = fenceRef.current;
       const currentGridCells = gridCellsRef.current;
+
+      const [x, y] = event.coordinate;
+      const isDegree = currentMetadata?.cellSize.unit === 'degree';
+      const decimals = isDegree ? 6 : 3;
+      setPointerText(`${x.toFixed(decimals)}, ${y.toFixed(decimals)}`);
 
       if (!currentMetadata || !currentPreview) {
         setHoverInfo(null);
@@ -593,7 +595,19 @@ export function useMap(metadata: RasterMetadata | null) {
     }
 
     try {
-      const basePreview = buildGridPreview(fence.geometry.coordinates, cellSize);
+      const metricTransform = metadata?.metricTransform;
+      let cellWidth = cellSize;
+      let cellHeight = cellSize;
+      const isDegree = metadata?.cellSize.unit === 'degree';
+      
+      if (isDegree) {
+        const centerLat = fence.geometry.coordinates[0]?.[0]?.[1] ?? 0;
+        const scale = getDegreeToMeterScale(centerLat);
+        cellWidth = cellSize / scale.scaleX;
+        cellHeight = cellSize / scale.scaleY;
+      }
+
+      const basePreview = buildGridPreview(fence.geometry.coordinates, cellSize, metricTransform);
       renderGridPreview(basePreview.cells, basePreview.summary);
 
       if (!sourceFile) {
@@ -616,9 +630,15 @@ export function useMap(metadata: RasterMetadata | null) {
           const aggregation = buildGridAggregationFromFenceWindow({
             ...fenceWindow,
             fenceRings: fence.geometry.coordinates,
-            gridCellSize: cellSize,
+            gridCellWidth: cellWidth,
+            gridCellHeight: cellHeight,
           });
-          const nextPreview = buildGridPreview(fence.geometry.coordinates, cellSize, aggregation);
+          const nextPreview = buildGridPreview(
+            fence.geometry.coordinates,
+            cellSize,
+            metricTransform,
+            aggregation,
+          );
 
           if (disposed) {
             return;
