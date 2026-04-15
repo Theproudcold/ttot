@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { useDebounce } from '@/shared/hooks/useDebounce';
+import { useDebouncedCallback } from '@/shared/hooks/useDebouncedCallback';
 import { getDegreeToMeterScale } from '@/shared/geo/crs';
 
 function DebouncedColorPicker({
@@ -40,15 +42,18 @@ function RuleNumberInput({
   onChange,
   className,
   placeholder,
-  step
+  step,
+  debounceMs = 300,
 }: {
   value: number | null | undefined;
   onChange: (val: number | null) => void;
   className?: string;
   placeholder?: string;
   step?: string;
+  debounceMs?: number;
 }) {
   const [localValue, setLocalValue] = useState(value == null ? '' : String(value));
+  const debouncedOnChange = useDebouncedCallback(onChange, debounceMs);
 
   useEffect(() => {
     if (value == null) {
@@ -73,12 +78,12 @@ function RuleNumberInput({
       onChange={(e) => {
         setLocalValue(e.target.value);
         if (e.target.value === '') {
-          onChange(null);
+          debouncedOnChange(null);
           return;
         }
         const nextValue = Number(e.target.value);
         if (Number.isFinite(nextValue)) {
-          onChange(nextValue);
+          debouncedOnChange(nextValue);
         }
       }}
     />
@@ -228,6 +233,71 @@ function updateRuleTuple(
     ruleIndex === 0 ? updater(firstRule) : firstRule,
     ...restRules.map((rule, index) => (index + 1 === ruleIndex ? updater(rule) : rule)),
   ] as RasterRuleClassificationLayer['rules'];
+}
+
+function ClassificationLayerNameInput({
+  layerId,
+  label,
+  onChange,
+}: {
+  layerId: string;
+  label: string;
+  onChange: (id: string, updates: { label: string }) => void;
+}) {
+  const [localLabel, setLocalLabel] = useState(label);
+  const debouncedLabel = useDebounce(localLabel, 300);
+
+  useEffect(() => {
+    setLocalLabel(label);
+  }, [label]);
+
+  useEffect(() => {
+    if (debouncedLabel !== label) {
+      onChange(layerId, { label: debouncedLabel });
+    }
+  }, [debouncedLabel, label, layerId, onChange]);
+
+  return (
+    <input
+      id="classification-layer-name"
+      className="field-input"
+      type="text"
+      value={localLabel}
+      onChange={(event) => setLocalLabel(event.target.value)}
+    />
+  );
+}
+
+function RuleLabelInput({
+  ruleIndex,
+  label,
+  onChange,
+}: {
+  ruleIndex: number;
+  label: string;
+  onChange: (index: number, field: 'label', value: string) => void;
+}) {
+  const [localLabel, setLocalLabel] = useState(label);
+  const debouncedLabel = useDebounce(localLabel, 300);
+
+  useEffect(() => {
+    setLocalLabel(label);
+  }, [label]);
+
+  useEffect(() => {
+    if (debouncedLabel !== label) {
+      onChange(ruleIndex, 'label', debouncedLabel);
+    }
+  }, [debouncedLabel, label, ruleIndex, onChange]);
+
+  return (
+    <input
+      className="field-input"
+      type="text"
+      value={localLabel}
+      onChange={(event) => setLocalLabel(event.target.value)}
+    />
+  );
 }
 
 export function RightPanel() {
@@ -589,16 +659,10 @@ export function RightPanel() {
               <label className="field-label" htmlFor="classification-layer-name">
                 方案名称
               </label>
-              <input
-                id="classification-layer-name"
-                className="field-input"
-                type="text"
-                value={activeClassificationLayer.label}
-                onChange={(event) => {
-                  updateClassificationLayer(activeClassificationLayer.id, {
-                    label: event.target.value,
-                  });
-                }}
+              <ClassificationLayerNameInput
+                layerId={activeClassificationLayer.id}
+                label={activeClassificationLayer.label}
+                onChange={updateClassificationLayer}
               />
 
               {activeClassificationLayer.mode === 'gradient' ? (
@@ -684,13 +748,10 @@ export function RightPanel() {
                           </div>
                           <div style={{ display: 'flex', flexDirection: 'column', gridColumn: '1 / -1' }}>
                             <span className="field-label" style={{ fontSize: '10px' }}>规则标签</span>
-                            <input
-                              className="field-input"
-                              type="text"
-                              value={rule.label}
-                              onChange={(event) => {
-                                updateRuleField(index, 'label', event.target.value);
-                              }}
+                            <RuleLabelInput
+                              ruleIndex={index}
+                              label={rule.label}
+                              onChange={updateRuleField}
                             />
                           </div>
                           <div style={{ display: 'flex', flexDirection: 'column', gridColumn: '1 / -1', background: '#f5f5f5', padding: '8px', borderRadius: '4px', fontSize: '12px' }}>
