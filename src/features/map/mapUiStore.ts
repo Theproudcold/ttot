@@ -9,6 +9,9 @@ type LayerKey = 'raster' | 'fence' | 'grid';
 
 type LayerVisibilityState = Record<LayerKey, boolean>;
 
+/**
+ * 内部状态：在 RasterClassificationLayer 基础上增加 visible 字段，用于 UI 显隐控制。
+ */
 type ClassificationLayerState = RasterClassificationLayer & {
   visible: boolean;
 };
@@ -85,6 +88,9 @@ const DEFAULT_RULE_CLASSIFICATION_LAYER: Extract<RasterClassificationLayer, { mo
   ],
 };
 
+/**
+ * 构建默认的 NDVI 渐变分类图层，并设置为可见。
+ */
 function buildDefaultGradientClassificationLayer(): GradientClassificationLayerState {
   const layer = buildDefaultNdviClassificationLayer();
 
@@ -99,6 +105,9 @@ function buildDefaultGradientClassificationLayer(): GradientClassificationLayerS
   };
 }
 
+/**
+ * 深拷贝渐变停靠点数组（含首元素展开，避免 React 依赖比较问题）。
+ */
 function cloneGradientStops(
   [firstStop, ...restStops]: GradientClassificationLayerState['gradientStops'],
 ): GradientClassificationLayerState['gradientStops'] {
@@ -108,6 +117,9 @@ function cloneGradientStops(
   ];
 }
 
+/**
+ * 深拷贝规则数组（含首元素展开）。
+ */
 function cloneRules(
   [firstRule, ...restRules]: RuleClassificationLayerState['rules'],
 ): RuleClassificationLayerState['rules'] {
@@ -117,6 +129,9 @@ function cloneRules(
   ];
 }
 
+/**
+ * 基于基础属性与渐变停靠点创建渐变分类图层。
+ */
 function createGradientClassificationLayer(
   base: ClassificationLayerBaseState,
   gradientStops: GradientClassificationLayerState['gradientStops'],
@@ -129,6 +144,9 @@ function createGradientClassificationLayer(
   };
 }
 
+/**
+ * 基于基础属性与规则列表创建规则分类图层。
+ */
 function createRuleClassificationLayer(
   base: ClassificationLayerBaseState,
   rules: RuleClassificationLayerState['rules'],
@@ -141,6 +159,9 @@ function createRuleClassificationLayer(
   };
 }
 
+/**
+ * 克隆分类图层，支持覆盖基础属性。
+ */
 function cloneClassificationLayer(
   layer: ClassificationLayerState,
   overrides: Partial<ClassificationLayerBaseState> = {},
@@ -159,10 +180,16 @@ function cloneClassificationLayer(
   return createGradientClassificationLayer(base, cloneGradientStops(layer.gradientStops));
 }
 
+/**
+ * 创建初始可见的默认渐变分类图层。
+ */
 function createInitialClassificationLayer(): ClassificationLayerState {
   return cloneClassificationLayer(buildDefaultGradientClassificationLayer());
 }
 
+/**
+ * 应用更新后构建图层的基础属性，若 ID 冲突则保留原 ID。
+ */
 function buildClassificationLayerBase(
   layer: ClassificationLayerState,
   updates: ClassificationLayerUpdates,
@@ -181,6 +208,9 @@ function buildClassificationLayerBase(
   };
 }
 
+/**
+ * 解析更新后的渐变停靠点列表。
+ */
 function resolveGradientStops(
   layer: ClassificationLayerState,
   updates: ClassificationLayerUpdates,
@@ -196,6 +226,9 @@ function resolveGradientStops(
   return cloneGradientStops(buildDefaultGradientClassificationLayer().gradientStops);
 }
 
+/**
+ * 解析更新后的规则列表。
+ */
 function resolveRules(
   layer: ClassificationLayerState,
   updates: ClassificationLayerUpdates,
@@ -211,6 +244,9 @@ function resolveRules(
   return cloneRules(DEFAULT_RULE_CLASSIFICATION_LAYER.rules);
 }
 
+/**
+ * 根据更新内容构建规范化后的分类图层，自动处理模式切换时的数据填充。
+ */
 function buildNormalizedClassificationLayer(
   layer: ClassificationLayerState,
   updates: ClassificationLayerUpdates,
@@ -226,6 +262,9 @@ function buildNormalizedClassificationLayer(
   return createRuleClassificationLayer(base, resolveRules(layer, updates));
 }
 
+/**
+ * 构建包含默认分类图层的初始状态。
+ */
 function buildInitialClassificationState() {
   const defaultLayer = createInitialClassificationLayer();
 
@@ -236,6 +275,10 @@ function buildInitialClassificationState() {
   };
 }
 
+/**
+ * 从分类图层列表中找出可见的图层 ID。
+ * 若首选图层不可见，则返回第一个可见图层。
+ */
 function getVisibleClassificationLayerId(
   classificationLayers: ClassificationLayerState[],
   preferredLayerId: string | null,
@@ -250,6 +293,10 @@ function getVisibleClassificationLayerId(
   return classificationLayers.find((layer) => layer.visible)?.id ?? null;
 }
 
+/**
+ * 从分类图层列表中找出当前活动图层 ID。
+ * 若首选图层不存在，则默认返回列表中的第一个。
+ */
 function getActiveClassificationLayerId(
   classificationLayers: ClassificationLayerState[],
   preferredLayerId: string | null,
@@ -261,6 +308,9 @@ function getActiveClassificationLayerId(
   return classificationLayers[0]?.id ?? null;
 }
 
+/**
+ * 生成不重复的副本图层 ID。
+ */
 function createDuplicateLayerId(
   classificationLayers: ClassificationLayerState[],
   sourceLayerId: string,
@@ -276,6 +326,9 @@ function createDuplicateLayerId(
   return nextId;
 }
 
+/**
+ * 规范化悬停信息，将 undefined 聚合值统一转为 null。
+ */
 function normalizeHoverInfo(hoverInfo: RasterHoverInfoInput): RasterHoverInfo {
   return {
     ...hoverInfo,
@@ -284,6 +337,10 @@ function normalizeHoverInfo(hoverInfo: RasterHoverInfoInput): RasterHoverInfo {
   };
 }
 
+/**
+ * 地图 UI 状态管理（Zustand）。
+ * 负责图层显隐、悬停信息、渲染参数及分类方案（增删改查、复制、显隐切换）的全局状态。
+ */
 export const useMapUiStore = create<MapUiState>((set) => ({
   ...buildInitialClassificationState(),
   layers: INITIAL_LAYERS,

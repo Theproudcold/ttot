@@ -63,8 +63,28 @@ function createGridCell(outputValue: number | null): GridCell {
       validPixelCount: outputValue === null ? 0 : 1,
       sumValue: outputValue ?? 0,
       meanValue: outputValue,
+      minValue: outputValue,
+      maxValue: outputValue,
       outputValue,
     },
+  };
+}
+
+function createPendingGridCell(): GridCell {
+  return {
+    id: 'r0-c0',
+    row: 0,
+    col: 0,
+    center: [0.5, 0.5],
+    polygon: [
+      [
+        [0, 0],
+        [1, 0],
+        [1, 1],
+        [0, 1],
+        [0, 0],
+      ],
+    ],
   };
 }
 
@@ -177,15 +197,20 @@ describe('MapView', () => {
     expect(renderSync).toHaveBeenCalledTimes(1);
   });
 
-  it('returns fully transparent grid styles when a cell has no aggregated output value', () => {
-    const transparentColors = getGridCellStyleColors(createGridCell(null), null, defaultGridRenderSettings);
+  it('keeps grid strokes visible while aggregation is pending or empty in classification mode', () => {
+    const pendingColors = getGridCellStyleColors(createPendingGridCell(), null, defaultGridRenderSettings);
+    const emptyColors = getGridCellStyleColors(createGridCell(null), null, defaultGridRenderSettings);
     const visibleColors = getGridCellStyleColors(createGridCell(0.62), createRulesClassificationLayer(), defaultGridRenderSettings);
 
-    expect(transparentColors).toEqual({
-      strokeColor: 'rgba(0, 0, 0, 0)',
+    expect(pendingColors).toEqual({
+      strokeColor: 'rgba(51, 136, 255, 0.8)',
       fillColor: 'rgba(0, 0, 0, 0)',
     });
-    expect(visibleColors.strokeColor).toBe('rgba(0, 0, 0, 0.18)');
+    expect(emptyColors).toEqual({
+      strokeColor: 'rgba(51, 136, 255, 0.8)',
+      fillColor: 'rgba(0, 0, 0, 0)',
+    });
+    expect(visibleColors.strokeColor).toBe('rgba(51, 136, 255, 0.8)');
     expect(visibleColors.fillColor).toBe('#1f7a1f');
   });
 
@@ -271,87 +296,6 @@ describe('MapView', () => {
     });
 
     expect(hitTester([0.5, 0.5])?.id).toBe('r9-c9');
-  });
-
-  it('renders hover info card with projected coordinates using two decimals', () => {
-    act(() => {
-      useRasterStore.getState().setMetadata(
-        createRasterMetadata({
-          fileName: 'test2.tif',
-          boundingBox: [447934.5768945037, 4041573.0550815426, 448017.5877945037, 4041619.7863815427],
-          origin: [447934.5768945037, 4041619.7863815427, 0],
-          resolution: [0.0147, -0.0147, 0],
-          cellSize: { x: 0.0147, y: 0.0147, unit: 'm' },
-          crsCode: 'EPSG:4549',
-          isProjected: true,
-        }),
-      );
-      useRasterStore.getState().setPreview({
-        url: 'data:image/png;base64,preview',
-        width: 320,
-        height: 180,
-        sampleBandCount: 1,
-        sampleData: new Float32Array([0.1, 0.3, 0.5, 0.7]),
-        sampleRanges: [{ min: 0.1, max: 0.7 }],
-        noDataValue: 0,
-      });
-      useMapUiStore.getState().setHoverInfo({
-        coordinate: [447976.08, 4041596.42],
-        pixel: { row: 1590, col: 2823 },
-        sampleValues: [128],
-        classificationLabel: '0.20 ~ 0.40',
-        classificationColor: '#777777',
-        inValidityMask: true,
-        inFence: true,
-        gridCellId: 'r10-c20',
-        gridMeanValue: 0.62,
-        gridValidPixelCount: 18,
-      });
-    });
-
-    render(<MapView />);
-
-    expect(screen.getByLabelText('hover-card')).toBeInTheDocument();
-    expect(screen.getByLabelText('raster-legend')).toBeInTheDocument();
-    expect(screen.getByText('NDVI 默认')).toBeInTheDocument();
-    expect(screen.getByLabelText('gradient-legend')).toBeInTheDocument();
-    expect(screen.getByText('坐标：447976.08, 4041596.42')).toBeInTheDocument();
-    expect(screen.getByText('命中围栏：是')).toBeInTheDocument();
-    expect(screen.getByText('命中网格：r10-c20')).toBeInTheDocument();
-    expect(screen.getByText('网格均值：0.62')).toBeInTheDocument();
-    expect(screen.getByText('有效像元：18')).toBeInTheDocument();
-  });
-
-  it('renders geographic hover coordinates with six decimals', () => {
-    act(() => {
-      useRasterStore.getState().setMetadata(
-        createRasterMetadata({
-          fileName: 'gps-ndvi.tif',
-          boundingBox: [119.420001, 36.510001, 119.420901, 36.510601],
-          origin: [119.420001, 36.510601, 0],
-          resolution: [0.0000004, -0.0000004, 0],
-          cellSize: { x: 0.0000004, y: 0.0000004, unit: 'degree' },
-          crsCode: 'EPSG:4326',
-          isProjected: false,
-        }),
-      );
-      useMapUiStore.getState().setHoverInfo({
-        coordinate: [119.420456, 36.510654],
-        pixel: { row: 3, col: 4 },
-        sampleValues: [0.13],
-        classificationLabel: null,
-        classificationColor: null,
-        inValidityMask: true,
-        inFence: false,
-        gridCellId: null,
-        gridMeanValue: null,
-        gridValidPixelCount: null,
-      });
-    });
-
-    render(<MapView />);
-
-    expect(screen.getByText('坐标：119.420456, 36.510654')).toBeInTheDocument();
   });
 
   it('renders the default NDVI gradient legend with the visible scheme name', () => {

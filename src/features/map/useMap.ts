@@ -16,6 +16,7 @@ import { Fill, Stroke, Style } from 'ol/style.js';
 import { useFenceStore } from '@/features/fence/fenceStore';
 import { useGridStore } from '@/features/grid/gridStore';
 import { useLoadingStore } from '@/features/loading/loadingStore';
+import { useMapUiStore } from '@/features/map/mapUiStore';
 import {
   buildMapViewDebugPayload,
   debugLog,
@@ -23,10 +24,9 @@ import {
   measurePerformanceAsync,
   summarizePreviewPayload,
 } from '@/features/map/debugLogger';
-import { useMapUiStore } from '@/features/map/mapUiStore';
-import { ensureProjectionRegistered, getDegreeToMeterScale } from '@/shared/geo/crs';
+import { ensureProjectionRegistered } from '@/shared/geo/crs';
 import { clipFenceToBoundingBox, clipFenceToValidityMask, getFenceSummary, isCoordinateInValidityMask, isFenceInsideValidityMask, isPointInFence } from '@/shared/geo/fence';
-import { buildGridAggregationFromFenceWindow, readGeoTiffFenceWindow } from '@/shared/geo/geotiffExport';
+import { buildGridAggregationFromFenceWindowAsync, readGeoTiffFenceWindow } from '@/shared/geo/geotiffExport';
 import { buildGridPreview } from '@/shared/geo/grid';
 import {
   buildRasterClassificationPreviewRgba,
@@ -39,282 +39,26 @@ import type { FenceRings } from '@/shared/types/fence';
 import type { GridCell, GridRenderSettings } from '@/shared/types/grid';
 
 import { useRasterStore } from './rasterStore';
+import {
+  type DeferredMapResizeTarget,
+  type GridCellHitTester,
+  createAnimationFrameValueScheduler,
+  createGridCellHitTester,
+  getGridCellStyleColors,
+  getPixelPosition,
+  getPreviewSampleValues,
+  getPrimarySampleValue,
+  getVisibleClassificationLayer,
+  isBboxInside,
+} from './mapUtils';
 
-type DeferredMapResizeTarget = {
-  getTarget: () => unknown;
-  updateSize: () => void;
-  renderSync: () => void;
-};
-
-type FrameValueScheduler<T> = {
-  schedule: (value: T) => void;
-  cancel: () => void;
-};
-
-type GridCellHitTester = (coordinate: [number, number]) => GridCell | null;
-
-function isBboxInside(
-  innerBbox: [number, number, number, number],
-  outerBbox: [number, number, number, number],
-): boolean {
-  return (
-    innerBbox[0] >= outerBbox[0] &&
-    innerBbox[1] >= outerBbox[1] &&
-    innerBbox[2] <= outerBbox[2] &&
-    innerBbox[3] <= outerBbox[3]
-  );
-}
-
-function clampIndex(value: number, max: number): number {
-  return Math.min(Math.max(0, value), max);
-}
-
-function getPixelPosition(
-  coordinate: [number, number],
-  metadata: RasterMetadata,
-): { row: number; col: number } {
-  const [minX, minY, maxX, maxY] = metadata.boundingBox;
-  const col = clampIndex(
-    Math.floor(((coordinate[0] - minX) / (maxX - minX || Number.EPSILON)) * metadata.width),
-    metadata.width - 1,
-  );
-  const row = clampIndex(
-    Math.floor(((maxY - coordinate[1]) / (maxY - minY || Number.EPSILON)) * metadata.height),
-    metadata.height - 1,
-  );
-
-  return { row, col };
-}
-
-function getPreviewSampleValues(
-  coordinate: [number, number],
-  metadata: RasterMetadata,
-  preview: NonNullable<ReturnType<typeof useRasterStore.getState>['preview']>,
-): number[] | null {
-  if (!preview.sampleData || !preview.sampleBandCount) {
-    return null;
-  }
-
-  const [minX, minY, maxX, maxY] = metadata.boundingBox;
-  const col = clampIndex(
-    Math.floor(((coordinate[0] - minX) / (maxX - minX || Number.EPSILON)) * preview.width),
-    preview.width - 1,
-  );
-  const row = clampIndex(
-    Math.floor(((maxY - coordinate[1]) / (maxY - minY || Number.EPSILON)) * preview.height),
-    preview.height - 1,
-  );
-  const offset = (row * preview.width + col) * preview.sampleBandCount;
-  const values = [];
-
-  for (let bandIndex = 0; bandIndex < preview.sampleBandCount; bandIndex += 1) {
-    values.push(preview.sampleData[offset + bandIndex] ?? Number.NaN);
-  }
-
-  return values.every((value) => Number.isNaN(value)) ? null : values;
-}
-
-function scanGridCellAtCoordinate(coordinate: [number, number], cells: GridCell[]): GridCell | null {
-  for (const cell of cells) {
-    if (isPointInFence(coordinate, cell.polygon)) {
-      return cell;
-    }
-  }
-
-  return null;
-}
-
-function hexToRgba(hex: string, alpha: number): string {
-  const sanitized = hex.replace('#', '');
-  const r = Number.parseInt(sanitized.substring(0, 2), 16);
-  const g = Number.parseInt(sanitized.substring(2, 4), 16);
-  const b = Number.parseInt(sanitized.substring(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
-function createIdentityMetricTransform(fenceRings: FenceRings) {
-  const { bbox } = getFenceSummary(fenceRings);
-  const [minX, minY, maxX, maxY] = bbox;
-
-  return {
-    coordinateDisplayMode: 'projected' as const,
-    metricExtent: {
-      minX,
-      minY,
-      maxX,
-      maxY,
-    },
-    metricWidth: Math.max(0, maxX - minX),
-    metricHeight: Math.max(0, maxY - minY),
-    toMetric: ([x, y]: [number, number]) => [x, y] as [number, number],
-    fromMetric: ([x, y]: [number, number]) => [x, y] as [number, number],
-  };
-}
-
-function getFenceMetricBounds(
-  fenceRings: FenceRings,
-  metricTransform?: RasterMetadata['metricTransform'] | null,
-): [number, number, number, number] {
-  const transform = metricTransform ?? createIdentityMetricTransform(fenceRings);
-  let minX = Number.POSITIVE_INFINITY;
-  let minY = Number.POSITIVE_INFINITY;
-  let maxX = Number.NEGATIVE_INFINITY;
-  let maxY = Number.NEGATIVE_INFINITY;
-
-  for (const ring of fenceRings) {
-    for (const point of ring) {
-      const [x, y] = transform.toMetric(point);
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x);
-      maxY = Math.max(maxY, y);
-    }
-  }
-
-  return [minX, minY, maxX, maxY];
-}
-
-export function createGridCellHitTester(input: {
-  cells: GridCell[];
-  fenceRings: FenceRings;
-  cellSize: number;
-  metricTransform?: RasterMetadata['metricTransform'] | null;
-}): GridCellHitTester {
-  const { cells, fenceRings, cellSize, metricTransform } = input;
-  const indexedCells = new globalThis.Map(cells.map((cell) => [cell.id, cell]));
-  const [minX, minY, maxX, maxY] = getFenceMetricBounds(fenceRings, metricTransform);
-  const transform = metricTransform ?? createIdentityMetricTransform(fenceRings);
-  const safeCellSize = cellSize || Number.EPSILON;
-
-  return (coordinate) => {
-    const [metricX, metricY] = transform.toMetric(coordinate);
-
-    if (metricX >= minX && metricX <= maxX && metricY >= minY && metricY <= maxY) {
-      const row = Math.floor((metricY - minY) / safeCellSize);
-      const col = Math.floor((metricX - minX) / safeCellSize);
-      const indexedCell = indexedCells.get(`r${row}-c${col}`);
-
-      if (indexedCell && isPointInFence(coordinate, indexedCell.polygon)) {
-        return indexedCell;
-      }
-    }
-
-    return scanGridCellAtCoordinate(coordinate, cells);
-  };
-}
-
-function scheduleAnimationFrame(callback: FrameRequestCallback): number {
-  if (typeof requestAnimationFrame === 'function') {
-    return requestAnimationFrame(callback);
-  }
-
-  return globalThis.setTimeout(() => callback(Date.now()), 16);
-}
-
-function cancelScheduledAnimationFrame(frameId: number) {
-  if (typeof cancelAnimationFrame === 'function') {
-    cancelAnimationFrame(frameId);
-    return;
-  }
-
-  globalThis.clearTimeout(frameId);
-}
-
-export function createAnimationFrameValueScheduler<T>(
-  callback: (value: T) => void,
-  scheduler: typeof requestAnimationFrame = scheduleAnimationFrame,
-  canceler: typeof cancelAnimationFrame = cancelScheduledAnimationFrame,
-): FrameValueScheduler<T> {
-  let frameId: number | null = null;
-  let latestValue: T | undefined;
-
-  return {
-    schedule(value) {
-      latestValue = value;
-
-      if (frameId !== null) {
-        return;
-      }
-
-      frameId = scheduler(() => {
-        frameId = null;
-        if (latestValue === undefined) {
-          return;
-        }
-
-        const nextValue = latestValue;
-        latestValue = undefined;
-        callback(nextValue);
-      });
-    },
-    cancel() {
-      if (frameId !== null) {
-        canceler(frameId);
-        frameId = null;
-      }
-
-      latestValue = undefined;
-    },
-  };
-}
-
-export function getGridCellStyleColors(
-  cell: GridCell,
-  visibleClassificationLayer: (RasterClassificationLayer & { visible: boolean }) | null,
-  gridRenderSettings: GridRenderSettings,
-): { strokeColor: string; fillColor: string } {
-  if (!gridRenderSettings.useClassificationColors) {
-    return {
-      strokeColor: hexToRgba(gridRenderSettings.strokeColor, gridRenderSettings.strokeOpacity),
-      fillColor: hexToRgba(gridRenderSettings.fillColor, gridRenderSettings.fillOpacity),
-    };
-  }
-
-  const outputValue = cell.aggregation?.outputValue;
-  if (outputValue === null || outputValue === undefined || !Number.isFinite(outputValue)) {
-    return {
-      strokeColor: 'rgba(0, 0, 0, 0)',
-      fillColor: 'rgba(0, 0, 0, 0)',
-    };
-  }
-
-  return {
-    strokeColor: 'rgba(0, 0, 0, 0.18)',
-    fillColor:
-      findRasterClassificationMatch(
-        outputValue,
-        visibleClassificationLayer ?? useMapUiStore.getState().classificationLayers[0],
-      )?.color ?? 'rgba(17, 17, 17, 0.18)',
-  };
-}
-
-function getPrimarySampleValue(sampleValues: number[] | null, noDataValue?: number | null): number | null {
-  const primaryValue = sampleValues?.[0];
-  if (primaryValue === undefined || !Number.isFinite(primaryValue)) {
-    return null;
-  }
-
-  if (noDataValue !== null && noDataValue !== undefined && primaryValue === noDataValue) {
-    return null;
-  }
-
-  return primaryValue;
-}
-
-function getVisibleClassificationLayer(
-  classificationLayers: Array<RasterClassificationLayer & { visible: boolean }>,
-  visibleClassificationLayerId: string | null,
-): (RasterClassificationLayer & { visible: boolean }) | null {
-  if (visibleClassificationLayerId) {
-    const preferredLayer = classificationLayers.find((layer) => layer.id === visibleClassificationLayerId);
-    if (preferredLayer?.visible) {
-      return preferredLayer;
-    }
-  }
-
-  return classificationLayers.find((layer) => layer.visible) ?? null;
-}
-
+/**
+ * useMap 是地图核心 Hook，负责：
+ * 1. 创建并管理 OpenLayers Map 实例；
+ * 2. 响应影像、围栏、网格、分类图层等状态变化，动态更新图层；
+ * 3. 处理鼠标悬停（pointermove）交互，更新 hoverInfo；
+ * 4. 提供围栏绘制（Draw）与编辑（Modify）交互逻辑。
+ */
 export function useMap(metadata: RasterMetadata | null) {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
@@ -342,6 +86,7 @@ export function useMap(metadata: RasterMetadata | null) {
   const setValidationMessage = useFenceStore((state) => state.setValidationMessage);
   const cellSize = useGridStore((state) => state.cellSize);
   const rotation = useGridStore((state) => state.rotation);
+  const aggregationMode = useGridStore((state) => state.aggregationMode);
   const gridCells = useGridStore((state) => state.cells);
   const setPreview = useGridStore((state) => state.setPreview);
   const gridRenderSettings = useMapUiStore((state) => state.gridRenderSettings);
@@ -474,10 +219,13 @@ export function useMap(metadata: RasterMetadata | null) {
       source: fenceSource,
       visible: layers.fence,
       zIndex: 3,
+      renderBuffer: 200,
       style: new Style({
         stroke: new Stroke({
           color: '#111111',
           width: 2,
+          lineJoin: 'round',
+          lineCap: 'round',
         }),
         fill: new Fill({
           color: 'rgba(17, 17, 17, 0.06)',
@@ -550,7 +298,7 @@ export function useMap(metadata: RasterMetadata | null) {
           : null,
         inFence: currentFence ? isPointInFence(coordinate, currentFence.geometry.coordinates) : false,
         gridCellId: hitGridCell?.id ?? null,
-        gridMeanValue: hitGridCell?.aggregation?.meanValue ?? null,
+        gridMeanValue: hitGridCell?.aggregation?.outputValue ?? null,
         gridValidPixelCount: hitGridCell?.aggregation?.validPixelCount ?? null,
       });
     });
@@ -790,16 +538,6 @@ export function useMap(metadata: RasterMetadata | null) {
 
     try {
       const metricTransform = metadata?.metricTransform;
-      let cellWidth = cellSize;
-      let cellHeight = cellSize;
-      const isDegree = metadata?.cellSize.unit === 'degree';
-      
-      if (isDegree) {
-        const centerLat = fence.geometry.coordinates[0]?.[0]?.[1] ?? 0;
-        const scale = getDegreeToMeterScale(centerLat);
-        cellWidth = cellSize / scale.scaleX;
-        cellHeight = cellSize / scale.scaleY;
-      }
 
       const basePreview = measurePerformance('grid:preview-geometry', () =>
         buildGridPreview(fence.geometry.coordinates, cellSize, {
@@ -829,28 +567,33 @@ export function useMap(metadata: RasterMetadata | null) {
             return;
           }
 
-          const { aggregation, nextPreview } = measurePerformance('grid:aggregation', () => {
-            const nextAggregation = buildGridAggregationFromFenceWindow({
-              ...fenceWindow,
-              fenceRings: fence.geometry.coordinates,
-              metricTransform,
-              gridCellWidth: cellWidth,
-              gridCellHeight: cellHeight,
-            });
+          useLoadingStore.getState().update('正在汇总网格像元...');
+          const aggregation = await measurePerformanceAsync('grid:aggregation', () =>
+            buildGridAggregationFromFenceWindowAsync(
+              {
+                ...fenceWindow,
+                fenceRings: fence.geometry.coordinates,
+                metricTransform,
+                gridCellWidth: cellSize,
+                gridCellHeight: cellSize,
+                aggregationMode,
+                rotationDeg: rotation,
+              },
+              {
+                rowsPerChunk: 128,
+              },
+            ),
+          );
 
-            return {
-              aggregation: nextAggregation,
-              nextPreview: buildGridPreview(
-                fence.geometry.coordinates,
-                cellSize,
-                {
-                  metricTransform,
-                  aggregation: nextAggregation,
-                  rotationDeg: rotation,
-                },
-              ),
-            };
-          });
+          const nextPreview = buildGridPreview(
+            fence.geometry.coordinates,
+            cellSize,
+            {
+              metricTransform,
+              aggregation,
+              rotationDeg: rotation,
+            },
+          );
 
           if (disposed) {
             return;
@@ -880,7 +623,7 @@ export function useMap(metadata: RasterMetadata | null) {
     return () => {
       disposed = true;
     };
-  }, [cellSize, rotation, fence, setPreview, sourceFile]);
+  }, [cellSize, rotation, aggregationMode, fence, setPreview, sourceFile]);
 
   useEffect(() => {
     if (import.meta.env.VITEST || !mapRef.current || !fenceSourceRef.current) {
@@ -1024,6 +767,10 @@ export function useMap(metadata: RasterMetadata | null) {
   };
 }
 
+/**
+ * 在下一动画帧中延迟刷新地图尺寸并执行可选回调。
+ * 用于容器尺寸变化后（如侧边栏展开/收起、初次挂载）确保 OpenLayers 正确渲染。
+ */
 export function scheduleMapResizeFrame(
   map: DeferredMapResizeTarget,
   callback?: () => void,
@@ -1046,3 +793,18 @@ export function scheduleMapResizeFrame(
     }
   });
 }
+
+/**
+ * 以下工具函数已迁移至 mapUtils.ts，此处重新导出以保持原有导入路径兼容。
+ */
+export {
+  createAnimationFrameValueScheduler,
+  createGridCellHitTester,
+  getGridCellStyleColors,
+  getPixelPosition,
+  getPreviewSampleValues,
+  getPrimarySampleValue,
+  getVisibleClassificationLayer,
+  isBboxInside,
+} from './mapUtils';
+export type { DeferredMapResizeTarget, GridCellHitTester } from './mapUtils';
