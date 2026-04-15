@@ -1,6 +1,11 @@
 import { useEffect } from 'react';
 
-import { debugLog, summarizePreviewPayload } from '@/features/map/debugLogger';
+import {
+  debugLog,
+  markPerformanceEnd,
+  markPerformanceStart,
+  summarizePreviewPayload,
+} from '@/features/map/debugLogger';
 import { loadRasterMetadata, loadRasterPreview, loadRasterValidityMask } from '@/shared/geo/raster';
 
 import { useRasterStore } from './rasterStore';
@@ -34,6 +39,7 @@ export function useRasterLoader(options?: RasterLoaderOptions) {
     let disposed = false;
     setStatus('loading');
     setLoadingProgress('准备读取 GeoTIFF', 0);
+    markPerformanceStart('raster:metadata');
     debugLog('loader', '开始读取 GeoTIFF 文件', {
       fileName: sourceFile.name,
       fileSize: sourceFile.size,
@@ -61,6 +67,9 @@ export function useRasterLoader(options?: RasterLoaderOptions) {
           debugLog('loader', 'GeoTIFF 元信息读取失败', error);
           setError(error instanceof Error ? error.message : 'GeoTIFF 加载失败');
         }
+      })
+      .finally(() => {
+        markPerformanceEnd('raster:metadata');
       });
 
     return () => {
@@ -76,6 +85,7 @@ export function useRasterLoader(options?: RasterLoaderOptions) {
     let disposed = false;
     setPreviewStatus('loading');
     setLoadingProgress('正在生成预览', 5);
+    markPerformanceStart('raster:preview');
     debugLog('loader', '开始生成预览', {
       fileName: sourceFile.name,
       sourceId,
@@ -108,6 +118,9 @@ export function useRasterLoader(options?: RasterLoaderOptions) {
           console.error('[GeoTIFF] 预览生成失败:', error);
           setPreviewStatus('error');
         }
+      })
+      .finally(() => {
+        markPerformanceEnd('raster:preview');
       });
 
     return () => {
@@ -131,6 +144,7 @@ export function useRasterLoader(options?: RasterLoaderOptions) {
 
     let disposed = false;
     setValidityStatus('loading');
+    markPerformanceStart('raster:validity-mask');
     debugLog('loader', '开始提取有效区域', {
       fileName: sourceFile.name,
       sourceId,
@@ -153,6 +167,9 @@ export function useRasterLoader(options?: RasterLoaderOptions) {
           debugLog('loader', '有效区域提取失败', error);
           setValidityStatus('error');
         }
+      })
+      .finally(() => {
+        markPerformanceEnd('raster:validity-mask');
       });
 
     return () => {

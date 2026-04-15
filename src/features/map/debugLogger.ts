@@ -32,7 +32,15 @@ export function summarizePreviewPayload(preview: RasterPreview | null) {
   };
 }
 
+function isGeoDebugEnabled(): boolean {
+  return import.meta.env.DEV && import.meta.env.VITE_DEBUG_GEO === 'true';
+}
+
 export function debugLog(scope: string, message: string, payload?: unknown) {
+  if (!isGeoDebugEnabled()) {
+    return;
+  }
+
   const prefix = `[GeoTIFFDebug][${scope}] ${message}`;
   if (payload === undefined) {
     console.info(prefix);
@@ -42,4 +50,41 @@ export function debugLog(scope: string, message: string, payload?: unknown) {
   console.groupCollapsed(prefix);
   console.info(payload);
   console.groupEnd();
+}
+
+export function markPerformanceStart(name: string) {
+  if (typeof performance === 'undefined') {
+    return;
+  }
+
+  performance.mark(`${name}:start`);
+}
+
+export function markPerformanceEnd(name: string) {
+  if (typeof performance === 'undefined') {
+    return;
+  }
+
+  performance.mark(`${name}:end`);
+  performance.measure(name, `${name}:start`, `${name}:end`);
+}
+
+export function measurePerformance<T>(name: string, operation: () => T): T {
+  markPerformanceStart(name);
+
+  try {
+    return operation();
+  } finally {
+    markPerformanceEnd(name);
+  }
+}
+
+export async function measurePerformanceAsync<T>(name: string, operation: () => Promise<T>): Promise<T> {
+  markPerformanceStart(name);
+
+  try {
+    return await operation();
+  } finally {
+    markPerformanceEnd(name);
+  }
 }
