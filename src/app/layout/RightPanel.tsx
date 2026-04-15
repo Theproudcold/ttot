@@ -300,11 +300,81 @@ function RuleLabelInput({
   );
 }
 
+function HoverInfoCard() {
+  const metadata = useRasterStore((state) => state.metadata);
+  const hoverInfo = useMapUiStore((state) => state.hoverInfo);
+
+  if (!hoverInfo) {
+    return '把鼠标移到地图上，右侧会显示当前坐标、像元和值。';
+  }
+
+  return (
+    <dl className="metric-list">
+      <div className="metric-item">
+        <dt className="metric-label">坐标</dt>
+        <dd>{hoverInfo.coordinate.map((value) => value.toFixed(getCoordinateDecimals(metadata))).join(', ')}</dd>
+      </div>
+      <div className="metric-item">
+        <dt className="metric-label">像元位置</dt>
+        <dd>{`${hoverInfo.pixel.row} / ${hoverInfo.pixel.col}`}</dd>
+      </div>
+      <div className="metric-item">
+        <dt className="metric-label">像元值</dt>
+        <dd>
+          {hoverInfo.sampleValues
+            ? hoverInfo.sampleValues.map((value) => value.toFixed(2)).join(' / ')
+            : '--'}
+        </dd>
+      </div>
+      <div className="metric-item">
+        <dt className="metric-label">分类方案</dt>
+        <dd>{hoverInfo.classificationLayerName ?? '--'}</dd>
+      </div>
+      <div className="metric-item">
+        <dt className="metric-label">分级区间</dt>
+        <dd>{hoverInfo.classificationLabel ?? '--'}</dd>
+      </div>
+      <div className="metric-item">
+        <dt className="metric-label">分级颜色</dt>
+        <dd className="metric-color-value">
+          {hoverInfo.classificationColor ? (
+            <>
+              <span
+                aria-label="像元分级颜色"
+                className="color-chip"
+                style={{ backgroundColor: hoverInfo.classificationColor }}
+              />
+              {hoverInfo.classificationColor}
+            </>
+          ) : (
+            '--'
+          )}
+        </dd>
+      </div>
+      <div className="metric-item">
+        <dt className="metric-label">围栏命中</dt>
+        <dd>{hoverInfo.inFence ? '是' : '否'}</dd>
+      </div>
+      <div className="metric-item">
+        <dt className="metric-label">网格命中</dt>
+        <dd>{hoverInfo.gridCellId ?? '--'}</dd>
+      </div>
+      <div className="metric-item">
+        <dt className="metric-label">网格均值</dt>
+        <dd>{formatMetricNumber(hoverInfo.gridMeanValue)}</dd>
+      </div>
+      <div className="metric-item">
+        <dt className="metric-label">有效像元数</dt>
+        <dd>{formatMetricNumber(hoverInfo.gridValidPixelCount)}</dd>
+      </div>
+    </dl>
+  );
+}
+
 export function RightPanel() {
   const metadata = useRasterStore((state) => state.metadata);
   const status = useRasterStore((state) => state.status);
   const layers = useMapUiStore((state) => state.layers);
-  const hoverInfo = useMapUiStore((state) => state.hoverInfo);
   const setLayerVisibility = useMapUiStore((state) => state.setLayerVisibility);
   const fence = useFenceStore((state) => state.fence);
   const cellSize = useGridStore((state) => state.cellSize);
@@ -490,69 +560,7 @@ export function RightPanel() {
 
       <h3>悬停信息</h3>
       <div className="card">
-        {hoverInfo ? (
-          <dl className="metric-list">
-            <div className="metric-item">
-              <dt className="metric-label">坐标</dt>
-              <dd>{hoverInfo.coordinate.map((value) => value.toFixed(getCoordinateDecimals(metadata))).join(', ')}</dd>
-            </div>
-            <div className="metric-item">
-              <dt className="metric-label">像元位置</dt>
-              <dd>{`${hoverInfo.pixel.row} / ${hoverInfo.pixel.col}`}</dd>
-            </div>
-            <div className="metric-item">
-              <dt className="metric-label">像元值</dt>
-              <dd>
-                {hoverInfo.sampleValues
-                  ? hoverInfo.sampleValues.map((value) => value.toFixed(2)).join(' / ')
-                  : '--'}
-              </dd>
-            </div>
-            <div className="metric-item">
-              <dt className="metric-label">分类方案</dt>
-              <dd>{hoverInfo.classificationLayerName ?? '--'}</dd>
-            </div>
-            <div className="metric-item">
-              <dt className="metric-label">分级区间</dt>
-              <dd>{hoverInfo.classificationLabel ?? '--'}</dd>
-            </div>
-            <div className="metric-item">
-              <dt className="metric-label">分级颜色</dt>
-              <dd className="metric-color-value">
-                {hoverInfo.classificationColor ? (
-                  <>
-                    <span
-                      aria-label="像元分级颜色"
-                      className="color-chip"
-                      style={{ backgroundColor: hoverInfo.classificationColor }}
-                    />
-                    {hoverInfo.classificationColor}
-                  </>
-                ) : (
-                  '--'
-                )}
-              </dd>
-            </div>
-            <div className="metric-item">
-              <dt className="metric-label">围栏命中</dt>
-              <dd>{hoverInfo.inFence ? '是' : '否'}</dd>
-            </div>
-            <div className="metric-item">
-              <dt className="metric-label">网格命中</dt>
-              <dd>{hoverInfo.gridCellId ?? '--'}</dd>
-            </div>
-            <div className="metric-item">
-              <dt className="metric-label">网格均值</dt>
-              <dd>{formatMetricNumber(hoverInfo.gridMeanValue)}</dd>
-            </div>
-            <div className="metric-item">
-              <dt className="metric-label">有效像元数</dt>
-              <dd>{formatMetricNumber(hoverInfo.gridValidPixelCount)}</dd>
-            </div>
-          </dl>
-        ) : (
-          '把鼠标移到地图上，右侧会显示当前坐标、像元和值。'
-        )}
+        <HoverInfoCard />
       </div>
 
       <h3>分类方案</h3>

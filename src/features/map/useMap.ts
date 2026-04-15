@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 
 import Feature from 'ol/Feature.js';
 import Map from 'ol/Map.js';
+import type MapBrowserEvent from 'ol/MapBrowserEvent.js';
 import View from 'ol/View.js';
 import Draw from 'ol/interaction/Draw.js';
 import Modify from 'ol/interaction/Modify.js';
@@ -15,7 +16,13 @@ import { Fill, Stroke, Style } from 'ol/style.js';
 import { useFenceStore } from '@/features/fence/fenceStore';
 import { useGridStore } from '@/features/grid/gridStore';
 import { useLoadingStore } from '@/features/loading/loadingStore';
-import { buildMapViewDebugPayload, debugLog, summarizePreviewPayload } from '@/features/map/debugLogger';
+import {
+  buildMapViewDebugPayload,
+  debugLog,
+  measurePerformance,
+  measurePerformanceAsync,
+  summarizePreviewPayload,
+} from '@/features/map/debugLogger';
 import { useMapUiStore } from '@/features/map/mapUiStore';
 import { ensureProjectionRegistered, getDegreeToMeterScale } from '@/shared/geo/crs';
 import { getFenceSummary, isCoordinateInValidityMask, isFenceInsideValidityMask, isPointInFence } from '@/shared/geo/fence';
@@ -38,6 +45,13 @@ type DeferredMapResizeTarget = {
   updateSize: () => void;
   renderSync: () => void;
 };
+
+type FrameValueScheduler<T> = {
+  schedule: (value: T) => void;
+  cancel: () => void;
+};
+
+type GridCellHitTester = (coordinate: [number, number]) => GridCell | null;
 
 function isBboxInside(
   innerBbox: [number, number, number, number],
@@ -100,7 +114,7 @@ function getPreviewSampleValues(
   return values.every((value) => Number.isNaN(value)) ? null : values;
 }
 
-function findGridCellAtCoordinate(coordinate: [number, number], cells: GridCell[]): GridCell | null {
+function scanGridCellAtCoordinate(coordinate: [number, number], cells: GridCell[]): GridCell | null {
   for (const cell of cells) {
     if (isPointInFence(coordinate, cell.polygon)) {
       return cell;
@@ -108,6 +122,132 @@ function findGridCellAtCoordinate(coordinate: [number, number], cells: GridCell[
   }
 
   return null;
+}
+
+function createIdentityMetricTransform(fenceRings: FenceRings) {
+  const { bbox } = getFenceSummary(fenceRings);
+  const [minX, minY, maxX, maxY] = bbox;
+
+  return {
+    coordinateDisplayMode: 'projected' as const,
+    metricExtent: {
+      minX,
+      minY,
+      maxX,
+      maxY,
+    },
+    metricWidth: Math.max(0, maxX - minX),
+    metricHeight: Math.max(0, maxY - minY),
+    toMetric: ([x, y]: [number, number]) => [x, y] as [number, number],
+    fromMetric: ([x, y]: [number, number]) => [x, y] as [number, number],
+  };
+}
+
+function getFenceMetricBounds(
+  fenceRings: FenceRings,
+  metricTransform?: RasterMetadata['metricTransform'] | null,
+): [number, number, number, number] {
+  const transform = metricTransform ?? createIdentityMetricTransform(fenceRings);
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+
+  for (const ring of fenceRings) {
+    for (const point of ring) {
+      const [x, y] = transform.toMetric(point);
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  }
+
+  return [minX, minY, maxX, maxY];
+}
+
+export function createGridCellHitTester(input: {
+  cells: GridCell[];
+  fenceRings: FenceRings;
+  cellSize: number;
+  metricTransform?: RasterMetadata['metricTransform'] | null;
+}): GridCellHitTester {
+  const { cells, fenceRings, cellSize, metricTransform } = input;
+  const indexedCells = new globalThis.Map(cells.map((cell) => [cell.id, cell]));
+  const [minX, minY, maxX, maxY] = getFenceMetricBounds(fenceRings, metricTransform);
+  const transform = metricTransform ?? createIdentityMetricTransform(fenceRings);
+  const safeCellSize = cellSize || Number.EPSILON;
+
+  return (coordinate) => {
+    const [metricX, metricY] = transform.toMetric(coordinate);
+
+    if (metricX >= minX && metricX <= maxX && metricY >= minY && metricY <= maxY) {
+      const row = Math.floor((metricY - minY) / safeCellSize);
+      const col = Math.floor((metricX - minX) / safeCellSize);
+      const indexedCell = indexedCells.get(`r${row}-c${col}`);
+
+      if (indexedCell && isPointInFence(coordinate, indexedCell.polygon)) {
+        return indexedCell;
+      }
+    }
+
+    return scanGridCellAtCoordinate(coordinate, cells);
+  };
+}
+
+function scheduleAnimationFrame(callback: FrameRequestCallback): number {
+  if (typeof requestAnimationFrame === 'function') {
+    return requestAnimationFrame(callback);
+  }
+
+  return globalThis.setTimeout(() => callback(Date.now()), 16);
+}
+
+function cancelScheduledAnimationFrame(frameId: number) {
+  if (typeof cancelAnimationFrame === 'function') {
+    cancelAnimationFrame(frameId);
+    return;
+  }
+
+  globalThis.clearTimeout(frameId);
+}
+
+export function createAnimationFrameValueScheduler<T>(
+  callback: (value: T) => void,
+  scheduler: typeof requestAnimationFrame = scheduleAnimationFrame,
+  canceler: typeof cancelAnimationFrame = cancelScheduledAnimationFrame,
+): FrameValueScheduler<T> {
+  let frameId: number | null = null;
+  let latestValue: T | undefined;
+
+  return {
+    schedule(value) {
+      latestValue = value;
+
+      if (frameId !== null) {
+        return;
+      }
+
+      frameId = scheduler(() => {
+        frameId = null;
+        if (latestValue === undefined) {
+          return;
+        }
+
+        const nextValue = latestValue;
+        latestValue = undefined;
+        callback(nextValue);
+      });
+    },
+    cancel() {
+      if (frameId !== null) {
+        canceler(frameId);
+        frameId = null;
+      }
+
+      latestValue = undefined;
+    },
+  };
 }
 
 export function getGridCellStyleColors(
@@ -189,7 +329,7 @@ export function useMap(metadata: RasterMetadata | null) {
   const previewRef = useRef(preview);
   const validityMaskRef = useRef(validityMask);
   const fenceRef = useRef(fence);
-  const gridCellsRef = useRef(gridCells);
+  const gridHitTesterRef = useRef<GridCellHitTester>(() => null);
   const visibleClassificationLayerRef = useRef(
     getVisibleClassificationLayer(classificationLayers, visibleClassificationLayerId),
   );
@@ -211,8 +351,18 @@ export function useMap(metadata: RasterMetadata | null) {
   }, [fence]);
 
   useEffect(() => {
-    gridCellsRef.current = gridCells;
-  }, [gridCells]);
+    if (!fence || gridCells.length === 0) {
+      gridHitTesterRef.current = () => null;
+      return;
+    }
+
+    gridHitTesterRef.current = createGridCellHitTester({
+      cells: gridCells,
+      fenceRings: fence.geometry.coordinates,
+      cellSize,
+      metricTransform: metadata?.metricTransform,
+    });
+  }, [cellSize, fence, gridCells, metadata]);
 
   useEffect(() => {
     visibleClassificationLayerRef.current = getVisibleClassificationLayer(
@@ -334,14 +484,12 @@ export function useMap(metadata: RasterMetadata | null) {
     map.addLayer(gridLayer);
     map.addLayer(fenceLayer);
 
-    map.on('pointermove', (event) => {
+    const pointerMoveScheduler = createAnimationFrameValueScheduler<[number, number]>((coordinate) => {
       const currentMetadata = metadataRef.current;
       const currentPreview = previewRef.current;
       const currentValidityMask = validityMaskRef.current;
       const currentFence = fenceRef.current;
-      const currentGridCells = gridCellsRef.current;
-
-      const [x, y] = event.coordinate;
+      const [x, y] = coordinate;
       const isDegree = currentMetadata?.cellSize.unit === 'degree';
       const decimals = isDegree ? 6 : 3;
       setPointerText(`${x.toFixed(decimals)}, ${y.toFixed(decimals)}`);
@@ -351,10 +499,9 @@ export function useMap(metadata: RasterMetadata | null) {
         return;
       }
 
-      const coordinate: [number, number] = [x, y];
       const sampleValues = getPreviewSampleValues(coordinate, currentMetadata, currentPreview);
       const primarySampleValue = getPrimarySampleValue(sampleValues, currentPreview.noDataValue);
-      const hitGridCell = findGridCellAtCoordinate(coordinate, currentGridCells);
+      const hitGridCell = gridHitTesterRef.current(coordinate);
       const visibleClassificationLayer = visibleClassificationLayerRef.current;
       const classificationMatch =
         currentPreview.sampleBandCount === 1 && visibleClassificationLayer
@@ -380,6 +527,11 @@ export function useMap(metadata: RasterMetadata | null) {
         gridValidPixelCount: hitGridCell?.aggregation?.validPixelCount ?? null,
       });
     });
+    const handlePointerMove = (event: MapBrowserEvent) => {
+      pointerMoveScheduler.schedule([event.coordinate[0], event.coordinate[1]]);
+    };
+
+    map.on('pointermove', handlePointerMove);
 
     map.on('moveend', () => {
       debugLog('map', '地图 moveend', {
@@ -403,6 +555,8 @@ export function useMap(metadata: RasterMetadata | null) {
     scheduleMapResize(map);
 
     return () => {
+      pointerMoveScheduler.cancel();
+      map.un('pointermove', handlePointerMove);
       removeInteractions();
       map.setTarget(undefined);
       mapRef.current = null;
@@ -440,17 +594,20 @@ export function useMap(metadata: RasterMetadata | null) {
       classificationLayers,
       visibleClassificationLayerId,
     );
+    const previewSampleData = preview.sampleData;
     const styledPreviewUrl =
-      preview.sampleBandCount === 1 && preview.sampleData && visibleClassificationLayer
-        ? createPreviewDataUrl(
-            preview.width,
-            preview.height,
-            buildRasterClassificationPreviewRgba(
-              preview.sampleData,
+      preview.sampleBandCount === 1 && previewSampleData && visibleClassificationLayer
+        ? measurePerformance('raster:styled-preview', () =>
+            createPreviewDataUrl(
               preview.width,
               preview.height,
-              visibleClassificationLayer,
-              preview.noDataValue ?? null,
+              buildRasterClassificationPreviewRgba(
+                previewSampleData,
+                preview.width,
+                preview.height,
+                visibleClassificationLayer,
+                preview.noDataValue ?? null,
+              ),
             ),
           )
         : preview.url;
@@ -608,7 +765,9 @@ export function useMap(metadata: RasterMetadata | null) {
         cellHeight = cellSize / scale.scaleY;
       }
 
-      const basePreview = buildGridPreview(fence.geometry.coordinates, cellSize, metricTransform);
+      const basePreview = measurePerformance('grid:preview-geometry', () =>
+        buildGridPreview(fence.geometry.coordinates, cellSize, metricTransform),
+      );
       renderGridPreview(basePreview.cells, basePreview.summary);
 
       if (!sourceFile) {
@@ -620,28 +779,36 @@ export function useMap(metadata: RasterMetadata | null) {
       void (async () => {
         try {
           useLoadingStore.getState().start('正在计算网格聚合...');
-          const fenceWindow = await readGeoTiffFenceWindow({
-            file: sourceFile,
-            fenceRings: fence.geometry.coordinates,
-            samples: [0],
-          });
+          const fenceWindow = await measurePerformanceAsync('raster:fence-window', () =>
+            readGeoTiffFenceWindow({
+              file: sourceFile,
+              fenceRings: fence.geometry.coordinates,
+              samples: [0],
+            }),
+          );
           if (disposed) {
             return;
           }
 
-          const aggregation = buildGridAggregationFromFenceWindow({
-            ...fenceWindow,
-            fenceRings: fence.geometry.coordinates,
-            metricTransform,
-            gridCellWidth: cellWidth,
-            gridCellHeight: cellHeight,
+          const { aggregation, nextPreview } = measurePerformance('grid:aggregation', () => {
+            const nextAggregation = buildGridAggregationFromFenceWindow({
+              ...fenceWindow,
+              fenceRings: fence.geometry.coordinates,
+              metricTransform,
+              gridCellWidth: cellWidth,
+              gridCellHeight: cellHeight,
+            });
+
+            return {
+              aggregation: nextAggregation,
+              nextPreview: buildGridPreview(
+                fence.geometry.coordinates,
+                cellSize,
+                metricTransform,
+                nextAggregation,
+              ),
+            };
           });
-          const nextPreview = buildGridPreview(
-            fence.geometry.coordinates,
-            cellSize,
-            metricTransform,
-            aggregation,
-          );
 
           if (disposed) {
             return;
