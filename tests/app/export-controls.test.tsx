@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { LeftPanel } from '@/app/layout/LeftPanel';
+import { TopBar } from '@/app/layout/TopBar';
 import { downloadExportedGeoTiff, exportFenceGeoTiff } from '@/features/export/exportGeoTiff';
 import { useFenceStore } from '@/features/fence/fenceStore';
 import { useGridStore } from '@/features/grid/gridStore';
@@ -42,7 +42,7 @@ describe('ExportControls', () => {
   });
 
   it('disables export buttons when no preview data exists', () => {
-    render(<LeftPanel />);
+    render(<TopBar />);
 
     expect(screen.getByRole('button', { name: '导出围栏' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '导出网格' })).toBeDisabled();
@@ -92,7 +92,7 @@ describe('ExportControls', () => {
       );
     });
 
-    render(<LeftPanel />);
+    render(<TopBar />);
 
     const exportGridButton = screen.getByRole('button', { name: '导出网格' });
     expect(exportGridButton).toBeEnabled();
@@ -118,7 +118,7 @@ describe('ExportControls', () => {
       ]);
     });
 
-    render(<LeftPanel />);
+    render(<TopBar />);
 
     fireEvent.click(screen.getByRole('button', { name: '导出 GeoTIFF' }));
 
@@ -145,7 +145,7 @@ describe('ExportControls', () => {
     });
     vi.mocked(downloadExportedGeoTiff).mockResolvedValueOnce();
 
-    render(<LeftPanel />);
+    render(<TopBar />);
 
     fireEvent.click(screen.getByRole('button', { name: '导出 GeoTIFF' }));
 

@@ -5,6 +5,7 @@ import {
   applyGridAggregationToFenceWindowBands,
   applyGridNoDataMask,
   buildGridAggregationFromFenceWindow,
+  buildGridAggregationFromFenceWindowAsync,
   buildGeoTiffExportMetadata,
   getPixelWindowFromFenceBoundingBox,
   pickExportNoDataValue,
@@ -167,6 +168,39 @@ describe('buildGridAggregationFromFenceWindow', () => {
 
     expect(Object.keys(aggregation.cellsById)).toHaveLength(4);
     expect(Object.values(aggregation.cellsById).map((cell) => cell.meanValue)).toEqual([1, 3, 5, 7]);
+  });
+
+  it('matches the synchronous aggregation result when using the async fence-window path', async () => {
+    const yieldControl = vi.fn(async () => undefined);
+    const input: Parameters<typeof buildGridAggregationFromFenceWindow>[0] = {
+      bands: [new Float32Array([1, 3, 5, 7, 9, 11])],
+      window: [0, 0, 3, 2],
+      width: 3,
+      height: 2,
+      origin: [0, 2, 0],
+      resolution: [1, -1, 0],
+      fenceRings: [
+        [
+          [0, 0],
+          [3, 0],
+          [3, 2],
+          [0, 2],
+          [0, 0],
+        ],
+      ],
+      gridCellWidth: 1,
+      gridCellHeight: 1,
+      sourceNoDataValue: null,
+    };
+
+    const syncAggregation = buildGridAggregationFromFenceWindow(input);
+    const asyncAggregation = await buildGridAggregationFromFenceWindowAsync(input, {
+      rowsPerChunk: 1,
+      yieldControl,
+    });
+
+    expect(asyncAggregation).toEqual(syncAggregation);
+    expect(yieldControl).toHaveBeenCalledTimes(1);
   });
 });
 

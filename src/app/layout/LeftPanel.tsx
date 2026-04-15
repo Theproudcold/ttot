@@ -2,25 +2,31 @@ import { useState, useEffect, useRef } from 'react';
 import { useDebounce } from '@/shared/hooks/useDebounce';
 import { useDebouncedCallback } from '@/shared/hooks/useDebouncedCallback';
 
-import {
-  createFenceGeoJson,
-  createGridGeoJson,
-  downloadGeoJson,
-} from '@/features/export/exportGeoJson';
-import { downloadExportedGeoTiff, exportFenceGeoTiff } from '@/features/export/exportGeoTiff';
-import { useLoadingStore } from '@/features/loading/loadingStore';
 import { useFenceStore } from '@/features/fence/fenceStore';
 import { useGridStore } from '@/features/grid/gridStore';
 import { useMapUiStore } from '@/features/map/mapUiStore';
 import { useRasterStore } from '@/features/map/rasterStore';
+import { getDegreeToMeterScale } from '@/shared/geo/crs';
 import type { RasterMetadata } from '@/shared/types/raster';
 
-function formatCellSize(value: number, unit: string): string {
-  if (!value) {
+function formatCellSize(metadata: RasterMetadata | null | undefined): string {
+  if (!metadata) {
     return '--';
   }
 
-  return `${value.toFixed(4)} ${unit}`;
+  const { x, unit } = metadata.cellSize;
+  if (!x) {
+    return '--';
+  }
+
+  if (unit === 'degree') {
+    const latitude = (metadata.boundingBox[1] + metadata.boundingBox[3]) / 2;
+    const { scaleX } = getDegreeToMeterScale(latitude);
+    const meters = x * scaleX;
+    return `${meters.toFixed(4)} m`;
+  }
+
+  return `${x.toFixed(4)} ${unit}`;
 }
 
 function getCoordinateDecimals(metadata: RasterMetadata | null | undefined): number {
@@ -55,18 +61,14 @@ function formatGridRatio(cellSize: number, metadata: RasterMetadata | null | und
 }
 
 export function LeftPanel() {
-  const [geoTiffExportMessage, setGeoTiffExportMessage] = useState<string | null>(null);
-  const loading = useLoadingStore();
   const sourceLabel = useRasterStore((state) => state.sourceLabel);
   const sourceFile = useRasterStore((state) => state.sourceFile);
   const selectFile = useRasterStore((state) => state.selectFile);
   const resetRaster = useRasterStore((state) => state.reset);
   const resetMapUi = useMapUiStore((state) => state.reset);
   const metadata = useRasterStore((state) => state.metadata);
-  const status = useRasterStore((state) => state.status);
-  const validityStatus = useRasterStore((state) => state.validityStatus);
   const loadingProgress = useRasterStore((state) => state.loadingProgress);
-  const loadingPhase = useRasterStore((state) => state.loadingPhase);
+  const validityStatus = useRasterStore((state) => state.validityStatus);
   const fence = useFenceStore((state) => state.fence);
   const fenceMode = useFenceStore((state) => state.mode);
   const startDraw = useFenceStore((state) => state.startDraw);
@@ -76,20 +78,14 @@ export function LeftPanel() {
   const resetFence = useFenceStore((state) => state.reset);
   const cellSize = useGridStore((state) => state.cellSize);
   const rotation = useGridStore((state) => state.rotation);
+  const aggregationMode = useGridStore((state) => state.aggregationMode);
   const gridSummary = useGridStore((state) => state.summary);
-  const gridCells = useGridStore((state) => state.cells);
   const setCellSize = useGridStore((state) => state.setCellSize);
   const setRotation = useGridStore((state) => state.setRotation);
+  const setAggregationMode = useGridStore((state) => state.setAggregationMode);
   const resetGrid = useGridStore((state) => state.reset);
   const gridRenderSettings = useMapUiStore((state) => state.gridRenderSettings);
   const setGridRenderSettings = useMapUiStore((state) => state.setGridRenderSettings);
-
-  const classificationLayers = useMapUiStore((state) => state.classificationLayers);
-  const activeClassificationLayerId = useMapUiStore((state) => state.activeClassificationLayerId);
-  const activeClassificationLayer =
-    classificationLayers.find((layer) => layer.id === activeClassificationLayerId) ??
-    classificationLayers[0] ??
-    null;
 
   const [localCellSize, setLocalCellSize] = useState(String(cellSize));
   const latestCellSizeInputRef = useRef(String(cellSize));
@@ -126,32 +122,6 @@ export function LeftPanel() {
     }
   }, [debouncedRotation, rotation, setRotation]);
 
-  const handleGeoTiffExport = async () => {
-    if (!sourceFile || !fence || loading.active) {
-      return;
-    }
-
-    loading.start('正在导出 GeoTIFF...');
-    setGeoTiffExportMessage(null);
-
-    try {
-      const { blob, filename } = await exportFenceGeoTiff({
-        file: sourceFile,
-        fence,
-        gridCellSize: cellSize,
-        activeClassificationLayer,
-        metricTransform: metadata?.metricTransform ?? null,
-      });
-      await downloadExportedGeoTiff(blob, filename);
-      setGeoTiffExportMessage('GeoTIFF 导出完成');
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : '请稍后重试';
-      setGeoTiffExportMessage(`GeoTIFF 导出失败：${detail}`);
-    } finally {
-      loading.stop();
-    }
-  };
-
   return (
     <aside className="panel" aria-label="left-panel">
       <h2>文件信息</h2>
@@ -176,7 +146,6 @@ export function LeftPanel() {
                   resetFence();
                   resetGrid();
                   resetMapUi();
-                  setGeoTiffExportMessage(null);
                   selectFile(file);
                 }}
               />
@@ -192,7 +161,6 @@ export function LeftPanel() {
                   resetFence();
                   resetGrid();
                   resetMapUi();
-                  setGeoTiffExportMessage(null);
                 }}
               >
                 移除
@@ -200,79 +168,48 @@ export function LeftPanel() {
             </div>
           )}
         </div>
-        <div className="metric-section">
-          <h4 className="metric-section__title">基本属性</h4>
-          <dl className="metric-list metric-list--two-col">
-            <div className="metric-item">
-              <dt className="metric-label">文件名</dt>
-              <dd className="metric-value" title={metadata?.fileName ?? sourceLabel}>{metadata?.fileName ?? sourceLabel}</dd>
-            </div>
-            <div className="metric-item">
-              <dt className="metric-label">尺寸</dt>
-              <dd className="metric-value">{metadata ? `${metadata.width} x ${metadata.height}` : '--'}</dd>
-            </div>
-          </dl>
-        </div>
-
-        <div className="metric-section">
-          <h4 className="metric-section__title">空间参考</h4>
-          <dl className="metric-list metric-list--two-col">
-            <div className="metric-item">
-              <dt className="metric-label">地理参考</dt>
-              <dd className="metric-value">
-                {status === 'ready'
-                  ? '已识别'
-                  : status === 'error'
-                    ? '失败'
-                    : sourceLabel === '未选择文件'
-                      ? '等待上传'
-                      : '读取中'}
-              </dd>
-            </div>
-            <div className="metric-item">
-              <dt className="metric-label">CRS</dt>
-              <dd className="metric-value">{metadata?.crsCode ?? '--'}</dd>
-            </div>
-            <div className="metric-item">
-              <dt className="metric-label">像元大小</dt>
-              <dd className="metric-value">{metadata ? formatCellSize(metadata.cellSize.x, metadata.cellSize.unit) : '--'}</dd>
-            </div>
-            <div className="metric-item metric-item--full">
-              <dt className="metric-label">原始范围</dt>
-              <dd className="metric-value">{formatSourceExtent(metadata)}</dd>
-            </div>
-            <div className="metric-item">
-              <dt className="metric-label">实际尺寸</dt>
-              <dd className="metric-value">{formatRasterPhysicalSize(metadata)}</dd>
-            </div>
-          </dl>
-        </div>
-
-        <div className="metric-section">
-          <h4 className="metric-section__title">处理状态</h4>
-          <dl className="metric-list metric-list--two-col">
-            <div className="metric-item">
-              <dt className="metric-label">读取状态</dt>
-              <dd className="metric-value">{loadingPhase}</dd>
-            </div>
-            <div className="metric-item">
-              <dt className="metric-label">读取进度</dt>
-              <dd className="metric-value">{loadingProgress === null ? '--' : `${loadingProgress}%`}</dd>
-            </div>
-            <div className="metric-item">
-              <dt className="metric-label">有效区域</dt>
-              <dd className="metric-value">
-                {validityStatus === 'ready'
-                  ? '已就绪'
-                  : validityStatus === 'loading'
-                    ? '后台处理中'
-                    : validityStatus === 'error'
-                      ? '提取失败'
-                      : '--'}
-              </dd>
-            </div>
-          </dl>
-        </div>
+        <dl className="metric-list metric-list--two-col">
+          <div className="metric-item">
+            <dt className="metric-label">文件名</dt>
+            <dd className="metric-value" title={metadata?.fileName ?? sourceLabel}>{metadata?.fileName ?? sourceLabel}</dd>
+          </div>
+          <div className="metric-item">
+            <dt className="metric-label">尺寸</dt>
+            <dd className="metric-value">{metadata ? `${metadata.width} x ${metadata.height}` : '--'}</dd>
+          </div>
+          <div className="metric-item">
+            <dt className="metric-label">CRS</dt>
+            <dd className="metric-value">{metadata?.crsCode ?? '--'}</dd>
+          </div>
+          <div className="metric-item">
+            <dt className="metric-label">像元大小</dt>
+            <dd className="metric-value">{formatCellSize(metadata)}</dd>
+          </div>
+          <div className="metric-item">
+            <dt className="metric-label">读取进度</dt>
+            <dd className="metric-value">{loadingProgress === null ? '--' : `${loadingProgress}%`}</dd>
+          </div>
+          <div className="metric-item">
+            <dt className="metric-label">有效区域</dt>
+            <dd className="metric-value">
+              {validityStatus === 'ready'
+                ? '已就绪'
+                : validityStatus === 'loading'
+                  ? '后台处理中'
+                  : validityStatus === 'error'
+                    ? '提取失败'
+                    : '--'}
+            </dd>
+          </div>
+          <div className="metric-item metric-item--full">
+            <dt className="metric-label">原始范围</dt>
+            <dd className="metric-value">{formatSourceExtent(metadata)}</dd>
+          </div>
+          <div className="metric-item metric-item--full">
+            <dt className="metric-label">实际尺寸</dt>
+            <dd className="metric-value">{formatRasterPhysicalSize(metadata)}</dd>
+          </div>
+        </dl>
       </div>
 
       <h3>围栏工具</h3>
@@ -362,6 +299,20 @@ export function LeftPanel() {
             commitCellSize(nextRawValue);
           }}
         />
+        <label className="field-label" htmlFor="grid-aggregation-mode" style={{ marginTop: 12, display: 'block' }}>
+          聚合方式
+        </label>
+        <select
+          id="grid-aggregation-mode"
+          className="field-input"
+          value={aggregationMode}
+          onChange={(event) => setAggregationMode(event.target.value as typeof aggregationMode)}
+          style={{ width: '100%' }}
+        >
+          <option value="mean">均值</option>
+          <option value="max">最大值</option>
+          <option value="min">最小值</option>
+        </select>
         <label className="field-label" htmlFor="grid-rotation" style={{ marginTop: 12, display: 'block' }}>
           网格方向（°）
         </label>
@@ -407,110 +358,67 @@ export function LeftPanel() {
             />
             <label htmlFor="grid-use-classification-colors" style={{ fontSize: 14 }}>使用分类颜色</label>
           </div>
-          {!gridRenderSettings.useClassificationColors && (
-            <div className="grid-render-custom" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 12px' }}>
-              <div>
-                <label className="field-label" style={{ fontSize: 12 }}>填充颜色</label>
-                <input
-                  type="color"
-                  value={gridRenderSettings.fillColor}
-                  onChange={(e) => setGridRenderSettings({ fillColor: e.target.value })}
-                  style={{ width: '100%', height: 32, padding: 0, border: 'none' }}
-                />
-              </div>
-              <div>
-                <label className="field-label" style={{ fontSize: 12 }}>填充透明度</label>
-                <input
-                  type="number"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={gridRenderSettings.fillOpacity}
-                  onChange={(e) => setGridRenderSettings({ fillOpacity: Number(e.target.value) })}
-                  className="field-input"
-                />
-              </div>
-              <div>
-                <label className="field-label" style={{ fontSize: 12 }}>边框颜色</label>
-                <input
-                  type="color"
-                  value={gridRenderSettings.strokeColor}
-                  onChange={(e) => setGridRenderSettings({ strokeColor: e.target.value })}
-                  style={{ width: '100%', height: 32, padding: 0, border: 'none' }}
-                />
-              </div>
-              <div>
-                <label className="field-label" style={{ fontSize: 12 }}>边框透明度</label>
-                <input
-                  type="number"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={gridRenderSettings.strokeOpacity}
-                  onChange={(e) => setGridRenderSettings({ strokeOpacity: Number(e.target.value) })}
-                  className="field-input"
-                />
-              </div>
-              <div style={{ gridColumn: 'span 2' }}>
-                <label className="field-label" style={{ fontSize: 12 }}>边框宽度</label>
-                <input
-                  type="number"
-                  min={0}
-                  max={10}
-                  step={0.5}
-                  value={gridRenderSettings.strokeWidth}
-                  onChange={(e) => setGridRenderSettings({ strokeWidth: Number(e.target.value) })}
-                  className="field-input"
-                />
-              </div>
+          <div className="grid-render-custom" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 12px' }}>
+            {!gridRenderSettings.useClassificationColors && (
+              <>
+                <div>
+                  <label className="field-label" style={{ fontSize: 12 }}>填充颜色</label>
+                  <input
+                    type="color"
+                    value={gridRenderSettings.fillColor}
+                    onChange={(e) => setGridRenderSettings({ fillColor: e.target.value })}
+                    style={{ width: '100%', height: 32, padding: 0, border: 'none' }}
+                  />
+                </div>
+                <div>
+                  <label className="field-label" style={{ fontSize: 12 }}>填充透明度</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={gridRenderSettings.fillOpacity}
+                    onChange={(e) => setGridRenderSettings({ fillOpacity: Number(e.target.value) })}
+                    className="field-input"
+                  />
+                </div>
+              </>
+            )}
+            <div>
+              <label className="field-label" style={{ fontSize: 12 }}>边框颜色</label>
+              <input
+                type="color"
+                value={gridRenderSettings.strokeColor}
+                onChange={(e) => setGridRenderSettings({ strokeColor: e.target.value })}
+                style={{ width: '100%', height: 32, padding: 0, border: 'none' }}
+              />
             </div>
-          )}
+            <div>
+              <label className="field-label" style={{ fontSize: 12 }}>边框透明度</label>
+              <input
+                type="number"
+                min={0}
+                max={1}
+                step={0.05}
+                value={gridRenderSettings.strokeOpacity}
+                onChange={(e) => setGridRenderSettings({ strokeOpacity: Number(e.target.value) })}
+                className="field-input"
+              />
+            </div>
+            <div style={{ gridColumn: 'span 2' }}>
+              <label className="field-label" style={{ fontSize: 12 }}>边框宽度</label>
+              <input
+                type="number"
+                min={0}
+                max={10}
+                step={0.5}
+                value={gridRenderSettings.strokeWidth}
+                onChange={(e) => setGridRenderSettings({ strokeWidth: Number(e.target.value) })}
+                className="field-input"
+              />
+            </div>
+          </div>
         </div>
-        <div className="toolbar-row toolbar-row--spaced">
-          <button
-            type="button"
-            className="toolbar-button toolbar-button--ghost"
-            disabled={!fence || loading.active}
-            onClick={() => {
-              if (!fence) return;
-              loading.start('正在导出围栏...');
-              try {
-                downloadGeoJson(createFenceGeoJson(fence), 'fence.geojson');
-              } finally {
-                loading.stop();
-              }
-            }}
-          >
-            导出围栏
-          </button>
-          <button
-            type="button"
-            className="toolbar-button toolbar-button--ghost"
-            disabled={!gridSummary || gridCells.length === 0 || loading.active}
-            onClick={() => {
-              if (!gridSummary || gridCells.length === 0) return;
-              loading.start('正在导出网格...');
-              try {
-                downloadGeoJson(createGridGeoJson(gridCells, gridSummary, activeClassificationLayer), 'grid.geojson');
-              } finally {
-                loading.stop();
-              }
-            }}
-          >
-            导出网格
-          </button>
-          <button
-            type="button"
-            className="toolbar-button toolbar-button--ghost"
-            disabled={!sourceFile || !fence || loading.active}
-            onClick={() => {
-              void handleGeoTiffExport();
-            }}
-          >
-            {loading.active ? '处理中...' : '导出 GeoTIFF'}
-          </button>
-        </div>
-        {geoTiffExportMessage ? <p className="toolbar-hint">{geoTiffExportMessage}</p> : null}
       </div>
     </aside>
   );

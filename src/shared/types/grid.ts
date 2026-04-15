@@ -1,5 +1,7 @@
 import type { FenceRings } from '@/shared/types/fence';
 
+export type GridAggregationMode = 'mean' | 'max' | 'min';
+
 export type GridCellAggregation = {
   cellId: string;
   row: number;
@@ -8,6 +10,8 @@ export type GridCellAggregation = {
   validPixelCount: number;
   sumValue: number;
   meanValue: number | null;
+  minValue: number | null;
+  maxValue: number | null;
   outputValue: number | null;
 };
 

@@ -44,15 +44,19 @@ function isNumericArrayLike(value: unknown): value is number[] | Uint16Array | F
   return Array.isArray(value) || ArrayBuffer.isView(value);
 }
 
+import type { GridAggregationMode } from '@/shared/types/grid';
+
 export async function exportFenceGeoTiff(input: {
   file: File;
   fence: FenceFeature;
   gridCellSize: number;
+  aggregationMode?: GridAggregationMode;
   filename?: string;
   activeClassificationLayer?: RasterClassificationLayer | null;
   metricTransform?: MetricTransform | null;
+  rotationDeg?: number;
 }): Promise<{ blob: Blob; filename: string }> {
-  const { file, fence, gridCellSize, filename, activeClassificationLayer, metricTransform } = input;
+  const { file, fence, gridCellSize, aggregationMode, filename, activeClassificationLayer, metricTransform, rotationDeg } = input;
   const fenceWindow = await readGeoTiffFenceWindow({
     file,
     fenceRings: fence.geometry.coordinates,
@@ -90,6 +94,8 @@ export async function exportFenceGeoTiff(input: {
     sourceNoDataValue,
     noDataValue: exportNoDataValue,
     metricTransform: metricTransform ?? undefined,
+    aggregationMode,
+    rotationDeg,
   });
 
   let finalBands: SupportedRasterArray[] = masked.bands;

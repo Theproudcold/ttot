@@ -2,11 +2,12 @@ import type { MetricTransform } from '@/shared/geo/crs';
 import { getFenceSummary, isPointInFence } from '@/shared/geo/fence';
 import {
   aggregateGridCellsFromRasterWindow,
+  aggregateGridCellsFromRasterWindowAsync,
   applyGridAggregationToBands,
 } from '@/shared/geo/gridAggregation';
 import { openRasterSession } from '@/shared/geo/raster';
 import type { FenceBoundingBox, FencePosition, FenceRings } from '@/shared/types/fence';
-import type { GridAggregationResult } from '@/shared/types/grid';
+import type { GridAggregationMode, GridAggregationResult } from '@/shared/types/grid';
 import type { RasterOrigin, RasterResolution } from '@/shared/types/raster';
 
 export type SupportedRasterArray =
@@ -260,6 +261,8 @@ export function buildGridAggregationFromFenceWindow(input: {
   gridCellHeight: number;
   sourceNoDataValue: number | null;
   metricTransform?: MetricTransform;
+  aggregationMode?: GridAggregationMode;
+  rotationDeg?: number;
 }): GridAggregationResult {
   const {
     bands,
@@ -273,6 +276,8 @@ export function buildGridAggregationFromFenceWindow(input: {
     gridCellHeight,
     sourceNoDataValue,
     metricTransform,
+    aggregationMode,
+    rotationDeg,
   } =
     input;
   const primaryBand = bands[0];
@@ -292,7 +297,70 @@ export function buildGridAggregationFromFenceWindow(input: {
     band: primaryBand,
     noDataValue: sourceNoDataValue,
     metricTransform,
+    aggregationMode,
+    rotationDeg,
   });
+}
+
+export async function buildGridAggregationFromFenceWindowAsync(
+  input: {
+    bands: SupportedRasterArray[];
+    window: PixelWindow;
+    width: number;
+    height: number;
+    origin: RasterOrigin;
+    resolution: RasterResolution;
+    fenceRings: FenceRings;
+    gridCellWidth: number;
+    gridCellHeight: number;
+    sourceNoDataValue: number | null;
+    metricTransform?: MetricTransform;
+    aggregationMode?: GridAggregationMode;
+    rotationDeg?: number;
+  },
+  options?: {
+    rowsPerChunk?: number;
+    yieldControl?: () => Promise<void>;
+  },
+): Promise<GridAggregationResult> {
+  const {
+    bands,
+    window,
+    width,
+    height,
+    origin,
+    resolution,
+    fenceRings,
+    gridCellWidth,
+    gridCellHeight,
+    sourceNoDataValue,
+    metricTransform,
+    aggregationMode,
+    rotationDeg,
+  } = input;
+  const primaryBand = bands[0];
+  if (!primaryBand) {
+    throw new Error('GeoTIFF 缺少主波段数据');
+  }
+
+  return await aggregateGridCellsFromRasterWindowAsync(
+    {
+      window,
+      width,
+      height,
+      origin,
+      resolution,
+      fenceRings,
+      gridCellWidth,
+      gridCellHeight,
+      band: primaryBand,
+      noDataValue: sourceNoDataValue,
+      metricTransform,
+      aggregationMode,
+      rotationDeg,
+    },
+    options,
+  );
 }
 
 export function applyGridAggregationToFenceWindowBands(input: {
@@ -308,6 +376,8 @@ export function applyGridAggregationToFenceWindowBands(input: {
   sourceNoDataValue: number | null;
   noDataValue: number;
   metricTransform?: MetricTransform;
+  aggregationMode?: GridAggregationMode;
+  rotationDeg?: number;
 }): { aggregation: GridAggregationResult; bands: Float64Array[]; maskedPixelCount: number } {
   const {
     bands,
@@ -322,6 +392,8 @@ export function applyGridAggregationToFenceWindowBands(input: {
     sourceNoDataValue,
     noDataValue,
     metricTransform,
+    aggregationMode,
+    rotationDeg,
   } = input;
   const aggregation = buildGridAggregationFromFenceWindow({
     bands,
@@ -335,6 +407,8 @@ export function applyGridAggregationToFenceWindowBands(input: {
     gridCellHeight,
     sourceNoDataValue,
     metricTransform,
+    aggregationMode,
+    rotationDeg,
   });
   const rewritten = applyGridAggregationToBands({
     bands,
@@ -349,6 +423,7 @@ export function applyGridAggregationToFenceWindowBands(input: {
     gridCellHeight,
     noDataValue,
     metricTransform,
+    rotationDeg,
   });
 
   return {

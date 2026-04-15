@@ -162,7 +162,7 @@ describe('LeftPanel', () => {
   it('uses 1 meter as the default grid cell size', () => {
     render(<LeftPanel />);
 
-    expect(screen.getByDisplayValue('1')).toBeInTheDocument();
+    expect(screen.getByLabelText('网格尺寸（米）')).toHaveDisplayValue('1');
   });
 
   it('keeps the default grid cell size after reset even when a stale debounced value exists', () => {
@@ -183,7 +183,7 @@ describe('LeftPanel', () => {
     });
 
     expect(useGridStore.getState().cellSize).toBe(1);
-    expect(screen.getByDisplayValue('1')).toBeInTheDocument();
+    expect(screen.getByLabelText('网格尺寸（米）')).toHaveDisplayValue('1');
   });
 
   it('shows loading progress when local file parsing is in flight', () => {
@@ -193,9 +193,6 @@ describe('LeftPanel', () => {
 
     render(<LeftPanel />);
 
-    expect(
-      within(screen.getByText('读取状态').closest('.metric-item') as HTMLElement).getByText('正在读取本地文件'),
-    ).toBeInTheDocument();
     expect(
       within(screen.getByText('读取进度').closest('.metric-item') as HTMLElement).getByText('42%'),
     ).toBeInTheDocument();

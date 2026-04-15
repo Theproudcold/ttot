@@ -54,11 +54,12 @@ export function createGridGeoJson(
         cellSize: summary.cellSize,
       };
 
-      if (cell.aggregation?.meanValue != null) {
+      if (cell.aggregation?.outputValue != null) {
+        properties.aggregationValue = cell.aggregation.outputValue;
         properties.meanValue = cell.aggregation.meanValue;
         if (rules.length > 0) {
            for (const rule of rules) {
-             if (cell.aggregation.meanValue >= rule.min && (rule.max == null || cell.aggregation.meanValue <= rule.max)) {
+             if (cell.aggregation.outputValue >= rule.min && (rule.max == null || cell.aggregation.outputValue <= rule.max)) {
                 if (rule.applicationRate != null) {
                   properties.fertilizerAmount = rule.applicationRate;
                 }
