@@ -33,6 +33,7 @@ const gridSummary: GridSummary = {
   isPreviewLimited: false,
   previewStride: 1,
   warning: null,
+  rotation: 0,
 };
 
 const gridCells: GridCell[] = [

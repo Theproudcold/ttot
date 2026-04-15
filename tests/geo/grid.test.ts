@@ -38,6 +38,7 @@ describe('buildGridPreview', () => {
       isPreviewLimited: false,
       previewStride: 1,
       warning: null,
+      rotation: 0,
     });
     expect(preview.cells).toHaveLength(8);
     expect(preview.cells[0]).toMatchObject({

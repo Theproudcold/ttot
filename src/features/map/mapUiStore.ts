@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 import { buildDefaultNdviClassificationLayer } from '@/shared/geo/raster';
+import type { GridRenderSettings } from '@/shared/types/grid';
 import type { RasterHoverInfo, RasterHoverInfoInput, RasterRenderSettings } from '@/shared/types/raster';
 import type { RasterClassificationLayer } from '@/shared/types/raster';
 
@@ -30,6 +31,7 @@ type MapUiState = {
   layers: LayerVisibilityState;
   hoverInfo: RasterHoverInfo | null;
   rasterRenderSettings: RasterRenderSettings;
+  gridRenderSettings: GridRenderSettings;
   classificationLayers: ClassificationLayerState[];
   activeClassificationLayerId: string | null;
   visibleClassificationLayerId: string | null;
@@ -37,6 +39,7 @@ type MapUiState = {
   setLayerVisibility: (layer: LayerKey, visible: boolean) => void;
   setHoverInfo: (hoverInfo: RasterHoverInfoInput | null) => void;
   setRasterRenderSettings: (settings: Partial<RasterRenderSettings>) => void;
+  setGridRenderSettings: (settings: Partial<GridRenderSettings>) => void;
   addClassificationLayer: (layer: ClassificationLayerState) => void;
   updateClassificationLayer: (layerId: string, updates: ClassificationLayerUpdates) => void;
   duplicateClassificationLayer: (layerId: string) => string | null;
@@ -57,6 +60,15 @@ const INITIAL_RASTER_RENDER_SETTINGS: RasterRenderSettings = {
   min: null,
   max: null,
   step: 0.2,
+};
+
+const INITIAL_GRID_RENDER_SETTINGS: GridRenderSettings = {
+  useClassificationColors: true,
+  fillColor: '#3388ff',
+  fillOpacity: 0.3,
+  strokeColor: '#3388ff',
+  strokeOpacity: 0.8,
+  strokeWidth: 1,
 };
 
 const DEFAULT_NDVI_CLASSIFICATION_LABEL = 'NDVI 默认';
@@ -277,6 +289,7 @@ export const useMapUiStore = create<MapUiState>((set) => ({
   layers: INITIAL_LAYERS,
   hoverInfo: null,
   rasterRenderSettings: INITIAL_RASTER_RENDER_SETTINGS,
+  gridRenderSettings: INITIAL_GRID_RENDER_SETTINGS,
   toggleLayer: (layer) =>
     set((state) => ({
       layers: {
@@ -296,6 +309,13 @@ export const useMapUiStore = create<MapUiState>((set) => ({
     set((state) => ({
       rasterRenderSettings: {
         ...state.rasterRenderSettings,
+        ...settings,
+      },
+    })),
+  setGridRenderSettings: (settings) =>
+    set((state) => ({
+      gridRenderSettings: {
+        ...state.gridRenderSettings,
         ...settings,
       },
     })),
@@ -450,5 +470,6 @@ export const useMapUiStore = create<MapUiState>((set) => ({
       layers: INITIAL_LAYERS,
       hoverInfo: null,
       rasterRenderSettings: INITIAL_RASTER_RENDER_SETTINGS,
+      gridRenderSettings: INITIAL_GRID_RENDER_SETTINGS,
     }),
 }));

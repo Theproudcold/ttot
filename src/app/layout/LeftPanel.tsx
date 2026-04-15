@@ -70,13 +70,18 @@ export function LeftPanel() {
   const fenceMode = useFenceStore((state) => state.mode);
   const startDraw = useFenceStore((state) => state.startDraw);
   const startEdit = useFenceStore((state) => state.startEdit);
+  const stopInteraction = useFenceStore((state) => state.stopInteraction);
   const clearFence = useFenceStore((state) => state.clearFence);
   const resetFence = useFenceStore((state) => state.reset);
   const cellSize = useGridStore((state) => state.cellSize);
+  const rotation = useGridStore((state) => state.rotation);
   const gridSummary = useGridStore((state) => state.summary);
   const gridCells = useGridStore((state) => state.cells);
   const setCellSize = useGridStore((state) => state.setCellSize);
+  const setRotation = useGridStore((state) => state.setRotation);
   const resetGrid = useGridStore((state) => state.reset);
+  const gridRenderSettings = useMapUiStore((state) => state.gridRenderSettings);
+  const setGridRenderSettings = useMapUiStore((state) => state.setGridRenderSettings);
 
   const classificationLayers = useMapUiStore((state) => state.classificationLayers);
   const activeClassificationLayerId = useMapUiStore((state) => state.activeClassificationLayerId);
@@ -87,6 +92,8 @@ export function LeftPanel() {
 
   const [localCellSize, setLocalCellSize] = useState(String(cellSize));
   const debouncedCellSize = useDebounce(localCellSize, 300);
+  const [localRotation, setLocalRotation] = useState(String(rotation));
+  const debouncedRotation = useDebounce(localRotation, 300);
 
   useEffect(() => {
     setLocalCellSize(String(cellSize));
@@ -98,6 +105,17 @@ export function LeftPanel() {
       setCellSize(nextValue);
     }
   }, [debouncedCellSize, cellSize, setCellSize]);
+
+  useEffect(() => {
+    setLocalRotation(String(rotation));
+  }, [rotation]);
+
+  useEffect(() => {
+    const nextValue = Number(debouncedRotation);
+    if (Number.isFinite(nextValue) && nextValue !== rotation) {
+      setRotation(((nextValue % 360) + 360) % 360);
+    }
+  }, [debouncedRotation, rotation, setRotation]);
 
   const handleGeoTiffExport = async () => {
     if (!sourceFile || !fence || loading.active) {
@@ -251,27 +269,64 @@ export function LeftPanel() {
       <h3>围栏工具</h3>
       <div className="card">
         <div className="toolbar-row">
-          <button type="button" className="toolbar-button" onClick={startDraw}>
-            开始绘制
+          <button
+            type="button"
+            className={`toolbar-button${fenceMode === 'draw' ? ' toolbar-button--active' : ''}`}
+            onClick={startDraw}
+            disabled={fenceMode === 'draw'}
+          >
+            {fenceMode === 'draw' ? '绘制中…' : '开始绘制'}
           </button>
           <button
             type="button"
-            className="toolbar-button"
+            className={`toolbar-button${fenceMode === 'edit' ? ' toolbar-button--active' : ''}`}
             onClick={startEdit}
-            disabled={!fence}
+            disabled={!fence || fenceMode === 'edit'}
           >
-            编辑围栏
+            {fenceMode === 'edit' ? '编辑中…' : '编辑围栏'}
           </button>
+          {fenceMode === 'draw' && (
+            <button
+              type="button"
+              className="toolbar-button toolbar-button--ghost"
+              onClick={stopInteraction}
+            >
+              取消
+            </button>
+          )}
+          {fenceMode === 'edit' && (
+            <>
+              <button
+                type="button"
+                className="toolbar-button toolbar-button--active"
+                onClick={stopInteraction}
+              >
+                完成编辑
+              </button>
+              <button
+                type="button"
+                className="toolbar-button toolbar-button--ghost"
+                onClick={stopInteraction}
+              >
+                取消
+              </button>
+            </>
+          )}
           <button
             type="button"
             className="toolbar-button toolbar-button--ghost"
             onClick={clearFence}
-            disabled={!fence}
+            disabled={!fence || fenceMode !== 'idle'}
           >
             清空围栏
           </button>
         </div>
-        <p className="toolbar-hint">当前模式：{fenceMode}</p>
+        <p className="toolbar-hint">
+          {fenceMode === 'idle' && !fence && '尚未绘制围栏，点击「开始绘制」后在地图上单击添加顶点、双击完成。'}
+          {fenceMode === 'idle' && fence && '围栏已就绪，可继续编辑或清空后重新绘制。'}
+          {fenceMode === 'draw' && '正在绘制：单击地图添加顶点，双击完成绘制。'}
+          {fenceMode === 'edit' && '正在编辑：拖动顶点调整围栏形状，修改自动保存。'}
+        </p>
       </div>
 
       <h3>网格参数</h3>
@@ -288,11 +343,28 @@ export function LeftPanel() {
           value={localCellSize}
           onChange={(event) => setLocalCellSize(event.target.value)}
         />
+        <label className="field-label" htmlFor="grid-rotation" style={{ marginTop: 12, display: 'block' }}>
+          网格方向（°）
+        </label>
+        <input
+          id="grid-rotation"
+          className="field-input"
+          type="number"
+          min="-180"
+          max="180"
+          step="1"
+          value={localRotation}
+          onChange={(event) => setLocalRotation(event.target.value)}
+        />
         <div className="metric-section metric-section--compact" style={{ marginTop: 12 }}>
           <dl className="metric-list metric-list--two-col">
             <div className="metric-item">
               <dt className="metric-label">网格比例</dt>
               <dd className="metric-value">{formatGridRatio(cellSize, metadata)}</dd>
+            </div>
+            <div className="metric-item">
+              <dt className="metric-label">网格方向</dt>
+              <dd className="metric-value">{gridSummary?.rotation ?? rotation}°</dd>
             </div>
             <div className="metric-item">
               <dt className="metric-label">网格单位</dt>
@@ -303,6 +375,77 @@ export function LeftPanel() {
               <dd className="metric-value">{gridSummary?.totalCells ?? '--'}</dd>
             </div>
           </dl>
+        </div>
+
+        <div className="metric-section metric-section--compact" style={{ marginTop: 12 }}>
+          <h4 className="metric-section__title" style={{ marginBottom: 8, fontSize: 14 }}>渲染样式</h4>
+          <div className="field-row" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <input
+              id="grid-use-classification-colors"
+              type="checkbox"
+              checked={gridRenderSettings.useClassificationColors}
+              onChange={(e) => setGridRenderSettings({ useClassificationColors: e.target.checked })}
+            />
+            <label htmlFor="grid-use-classification-colors" style={{ fontSize: 14 }}>使用分类颜色</label>
+          </div>
+          {!gridRenderSettings.useClassificationColors && (
+            <div className="grid-render-custom" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 12px' }}>
+              <div>
+                <label className="field-label" style={{ fontSize: 12 }}>填充颜色</label>
+                <input
+                  type="color"
+                  value={gridRenderSettings.fillColor}
+                  onChange={(e) => setGridRenderSettings({ fillColor: e.target.value })}
+                  style={{ width: '100%', height: 32, padding: 0, border: 'none' }}
+                />
+              </div>
+              <div>
+                <label className="field-label" style={{ fontSize: 12 }}>填充透明度</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={gridRenderSettings.fillOpacity}
+                  onChange={(e) => setGridRenderSettings({ fillOpacity: Number(e.target.value) })}
+                  className="field-input"
+                />
+              </div>
+              <div>
+                <label className="field-label" style={{ fontSize: 12 }}>边框颜色</label>
+                <input
+                  type="color"
+                  value={gridRenderSettings.strokeColor}
+                  onChange={(e) => setGridRenderSettings({ strokeColor: e.target.value })}
+                  style={{ width: '100%', height: 32, padding: 0, border: 'none' }}
+                />
+              </div>
+              <div>
+                <label className="field-label" style={{ fontSize: 12 }}>边框透明度</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={gridRenderSettings.strokeOpacity}
+                  onChange={(e) => setGridRenderSettings({ strokeOpacity: Number(e.target.value) })}
+                  className="field-input"
+                />
+              </div>
+              <div style={{ gridColumn: 'span 2' }}>
+                <label className="field-label" style={{ fontSize: 12 }}>边框宽度</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={10}
+                  step={0.5}
+                  value={gridRenderSettings.strokeWidth}
+                  onChange={(e) => setGridRenderSettings({ strokeWidth: Number(e.target.value) })}
+                  className="field-input"
+                />
+              </div>
+            </div>
+          )}
         </div>
         <div className="toolbar-row toolbar-row--spaced">
           <button

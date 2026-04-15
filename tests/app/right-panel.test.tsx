@@ -93,6 +93,7 @@ describe('RightPanel', () => {
         isPreviewLimited: false,
         previewStride: 1,
         warning: null,
+        rotation: 0,
       });
     });
 

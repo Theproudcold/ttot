@@ -329,6 +329,23 @@ input {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
 }
 
+.toolbar-button--active,
+.toolbar-button--active:hover:not(:disabled) {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #2563eb;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+  transform: translateY(-1px);
+}
+
+.toolbar-button--active.toolbar-button--ghost,
+.toolbar-button--active.toolbar-button--ghost:hover:not(:disabled) {
+  background: rgba(37, 99, 235, 0.12);
+  color: #2563eb;
+  border-color: rgba(37, 99, 235, 0.25);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.1);
+}
+
 .toolbar-hint {
   margin: 12px 0 0;
   color: #666;
@@ -553,14 +570,14 @@ input {
   position: absolute;
   inset: 20px;
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   justify-content: space-between;
   pointer-events: none;
 }
 
 .hover-card {
   position: absolute;
-  top: 20px;
+  bottom: 20px;
   left: 20px;
   display: grid;
   gap: 6px;

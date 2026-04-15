@@ -18,7 +18,7 @@ import { useLoadingStore } from '@/features/loading/loadingStore';
 import { buildMapViewDebugPayload, debugLog, summarizePreviewPayload } from '@/features/map/debugLogger';
 import { useMapUiStore } from '@/features/map/mapUiStore';
 import { ensureProjectionRegistered, getDegreeToMeterScale } from '@/shared/geo/crs';
-import { getFenceSummary, isCoordinateInValidityMask, isFenceInsideValidityMask, isPointInFence } from '@/shared/geo/fence';
+import { clipFenceToBoundingBox, clipFenceToValidityMask, getFenceSummary, isCoordinateInValidityMask, isFenceInsideValidityMask, isPointInFence } from '@/shared/geo/fence';
 import { buildGridAggregationFromFenceWindow, readGeoTiffFenceWindow } from '@/shared/geo/geotiffExport';
 import { buildGridPreview } from '@/shared/geo/grid';
 import {
@@ -29,7 +29,7 @@ import {
 import type { RasterMetadata } from '@/shared/types/raster';
 import type { RasterClassificationLayer } from '@/shared/types/raster';
 import type { FenceRings } from '@/shared/types/fence';
-import type { GridCell } from '@/shared/types/grid';
+import type { GridCell, GridRenderSettings } from '@/shared/types/grid';
 
 import { useRasterStore } from './rasterStore';
 
@@ -110,10 +110,26 @@ function findGridCellAtCoordinate(coordinate: [number, number], cells: GridCell[
   return null;
 }
 
+function hexToRgba(hex: string, alpha: number): string {
+  const sanitized = hex.replace('#', '');
+  const r = Number.parseInt(sanitized.substring(0, 2), 16);
+  const g = Number.parseInt(sanitized.substring(2, 4), 16);
+  const b = Number.parseInt(sanitized.substring(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 export function getGridCellStyleColors(
   cell: GridCell,
   visibleClassificationLayer: (RasterClassificationLayer & { visible: boolean }) | null,
+  gridRenderSettings: GridRenderSettings,
 ): { strokeColor: string; fillColor: string } {
+  if (!gridRenderSettings.useClassificationColors) {
+    return {
+      strokeColor: hexToRgba(gridRenderSettings.strokeColor, gridRenderSettings.strokeOpacity),
+      fillColor: hexToRgba(gridRenderSettings.fillColor, gridRenderSettings.fillOpacity),
+    };
+  }
+
   const outputValue = cell.aggregation?.outputValue;
   if (outputValue === null || outputValue === undefined || !Number.isFinite(outputValue)) {
     return {
@@ -181,15 +197,20 @@ export function useMap(metadata: RasterMetadata | null) {
   const fence = useFenceStore((state) => state.fence);
   const fenceMode = useFenceStore((state) => state.mode);
   const setFence = useFenceStore((state) => state.setFence);
+  const updateFence = useFenceStore((state) => state.updateFence);
+  const stopInteraction = useFenceStore((state) => state.stopInteraction);
   const setValidationMessage = useFenceStore((state) => state.setValidationMessage);
   const cellSize = useGridStore((state) => state.cellSize);
+  const rotation = useGridStore((state) => state.rotation);
   const gridCells = useGridStore((state) => state.cells);
   const setPreview = useGridStore((state) => state.setPreview);
+  const gridRenderSettings = useMapUiStore((state) => state.gridRenderSettings);
 
   const previewRef = useRef(preview);
   const validityMaskRef = useRef(validityMask);
   const fenceRef = useRef(fence);
   const gridCellsRef = useRef(gridCells);
+  const gridRenderSettingsRef = useRef(gridRenderSettings);
   const visibleClassificationLayerRef = useRef(
     getVisibleClassificationLayer(classificationLayers, visibleClassificationLayerId),
   );
@@ -213,6 +234,10 @@ export function useMap(metadata: RasterMetadata | null) {
   useEffect(() => {
     gridCellsRef.current = gridCells;
   }, [gridCells]);
+
+  useEffect(() => {
+    gridRenderSettingsRef.current = gridRenderSettings;
+  }, [gridRenderSettings]);
 
   useEffect(() => {
     visibleClassificationLayerRef.current = getVisibleClassificationLayer(
@@ -298,6 +323,7 @@ export function useMap(metadata: RasterMetadata | null) {
     const fenceLayer = new VectorLayer({
       source: fenceSource,
       visible: layers.fence,
+      zIndex: 3,
       style: new Style({
         stroke: new Stroke({
           color: '#111111',
@@ -311,10 +337,11 @@ export function useMap(metadata: RasterMetadata | null) {
     const gridLayer = new VectorLayer({
       source: gridSource,
       visible: layers.grid,
+      zIndex: 2,
       style: (feature) => {
         const cell = feature.get('gridCell') as GridCell | undefined;
         const colors = cell
-          ? getGridCellStyleColors(cell, visibleClassificationLayerRef.current)
+          ? getGridCellStyleColors(cell, visibleClassificationLayerRef.current, gridRenderSettingsRef.current)
           : {
               strokeColor: 'rgba(0, 0, 0, 0)',
               fillColor: 'rgba(0, 0, 0, 0)',
@@ -323,7 +350,7 @@ export function useMap(metadata: RasterMetadata | null) {
         return new Style({
           stroke: new Stroke({
             color: colors.strokeColor,
-            width: 1,
+            width: gridRenderSettingsRef.current.strokeWidth,
           }),
           fill: new Fill({
             color: colors.fillColor,
@@ -402,7 +429,15 @@ export function useMap(metadata: RasterMetadata | null) {
     gridLayerRef.current = gridLayer;
     scheduleMapResize(map);
 
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        stopInteraction();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+
     return () => {
+      document.removeEventListener('keydown', handleKeyDown);
       removeInteractions();
       map.setTarget(undefined);
       mapRef.current = null;
@@ -411,7 +446,7 @@ export function useMap(metadata: RasterMetadata | null) {
       gridSourceRef.current = null;
       gridLayerRef.current = null;
     };
-  }, [setHoverInfo, setPointerText]);
+  }, [setHoverInfo, setPointerText, stopInteraction]);
 
   useEffect(() => {
     if (import.meta.env.VITEST || !mapRef.current) {
@@ -465,6 +500,7 @@ export function useMap(metadata: RasterMetadata | null) {
     const layer = new ImageLayer({
       source,
       visible: layers.raster,
+      zIndex: 0,
     });
 
     if (rasterLayerRef.current) {
@@ -546,7 +582,7 @@ export function useMap(metadata: RasterMetadata | null) {
 
   useEffect(() => {
     gridLayerRef.current?.changed();
-  }, [classificationLayers, gridCells, visibleClassificationLayerId]);
+  }, [classificationLayers, gridCells, visibleClassificationLayerId, gridRenderSettings]);
 
   useEffect(() => {
     if (import.meta.env.VITEST || !fenceSourceRef.current) {
@@ -608,7 +644,10 @@ export function useMap(metadata: RasterMetadata | null) {
         cellHeight = cellSize / scale.scaleY;
       }
 
-      const basePreview = buildGridPreview(fence.geometry.coordinates, cellSize, metricTransform);
+      const basePreview = buildGridPreview(fence.geometry.coordinates, cellSize, {
+        metricTransform,
+        rotationDeg: rotation,
+      });
       renderGridPreview(basePreview.cells, basePreview.summary);
 
       if (!sourceFile) {
@@ -636,12 +675,11 @@ export function useMap(metadata: RasterMetadata | null) {
             gridCellWidth: cellWidth,
             gridCellHeight: cellHeight,
           });
-          const nextPreview = buildGridPreview(
-            fence.geometry.coordinates,
-            cellSize,
+          const nextPreview = buildGridPreview(fence.geometry.coordinates, cellSize, {
             metricTransform,
             aggregation,
-          );
+            rotationDeg: rotation,
+          });
 
           if (disposed) {
             return;
@@ -671,7 +709,7 @@ export function useMap(metadata: RasterMetadata | null) {
     return () => {
       disposed = true;
     };
-  }, [cellSize, fence, setPreview, sourceFile]);
+  }, [cellSize, rotation, fence, setPreview, sourceFile]);
 
   useEffect(() => {
     if (import.meta.env.VITEST || !mapRef.current || !fenceSourceRef.current) {
@@ -716,7 +754,26 @@ export function useMap(metadata: RasterMetadata | null) {
           return;
         }
 
-        const rings = geometry.getCoordinates() as FenceRings;
+        let rings = geometry.getCoordinates() as FenceRings;
+
+        if (metadata) {
+          const summary = getFenceSummary(rings);
+          if (!isBboxInside(summary.bbox, metadata.boundingBox)) {
+            rings = clipFenceToBoundingBox(rings, metadata.boundingBox);
+          }
+        }
+
+        if (validityMask && !isFenceInsideValidityMask(rings, validityMask)) {
+          rings = clipFenceToValidityMask(rings, validityMask);
+        }
+
+        const outerRing = rings[0] ?? [];
+        if (outerRing.length < 4) {
+          source.clear();
+          setValidationMessage('自动裁剪后围栏无效，请重新绘制。');
+          return;
+        }
+
         const validationError = validateFence(rings);
         if (validationError) {
           source.clear();
@@ -740,7 +797,33 @@ export function useMap(metadata: RasterMetadata | null) {
           return;
         }
 
-        const rings = geometry.getCoordinates() as FenceRings;
+        let rings = geometry.getCoordinates() as FenceRings;
+
+        if (metadata) {
+          const summary = getFenceSummary(rings);
+          if (!isBboxInside(summary.bbox, metadata.boundingBox)) {
+            rings = clipFenceToBoundingBox(rings, metadata.boundingBox);
+          }
+        }
+
+        if (validityMask && !isFenceInsideValidityMask(rings, validityMask)) {
+          rings = clipFenceToValidityMask(rings, validityMask);
+        }
+
+        const outerRing = rings[0] ?? [];
+        if (outerRing.length < 4) {
+          source.clear();
+          if (fence) {
+            source.addFeature(
+              new Feature({
+                geometry: new Polygon(fence.geometry.coordinates),
+              }),
+            );
+          }
+          setValidationMessage('自动裁剪后围栏无效，请重新编辑。');
+          return;
+        }
+
         const validationError = validateFence(rings);
         if (validationError) {
           source.clear();
@@ -755,13 +838,13 @@ export function useMap(metadata: RasterMetadata | null) {
           return;
         }
 
-        setFence(rings);
+        updateFence(rings);
       });
 
       map.addInteraction(modify);
       modifyRef.current = modify;
     }
-  }, [fence, fenceMode, metadata, setFence, setValidationMessage, validityMask]);
+  }, [fence, fenceMode, metadata, setFence, updateFence, setValidationMessage, validityMask]);
 
   return {
     mapElementRef,

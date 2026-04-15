@@ -120,9 +120,9 @@ describe('LeftPanel', () => {
 
     render(<LeftPanel />);
 
-    expect(screen.getByRole('button', { name: '开始绘制' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '绘制中…' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '编辑围栏' })).toBeInTheDocument();
-    expect(screen.getByText('当前模式：draw')).toBeInTheDocument();
+    expect(screen.getByText('正在绘制：单击地图添加顶点，双击完成绘制。')).toBeInTheDocument();
   });
 
   it('shows grid parameters and estimated cell count', () => {
@@ -137,6 +137,7 @@ describe('LeftPanel', () => {
         isPreviewLimited: true,
         previewStride: 2,
         warning: '网格过密，当前按 2x2 抽样预览。',
+        rotation: 0,
       });
     });
 
@@ -156,9 +157,13 @@ describe('LeftPanel', () => {
   });
 
   it('uses 10 meters as the default grid cell size', () => {
+    act(() => {
+      useGridStore.getState().reset();
+    });
+
     render(<LeftPanel />);
 
-    expect(screen.getByDisplayValue('10')).toBeInTheDocument();
+    expect(screen.getByLabelText('网格尺寸（米）')).toHaveValue(10);
   });
 
   it('shows loading progress when local file parsing is in flight', () => {

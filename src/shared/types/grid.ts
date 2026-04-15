@@ -22,6 +22,7 @@ export type GridCell = {
 
 export type GridSummary = {
   cellSize: number;
+  rotation: number;
   rows: number;
   cols: number;
   totalCells: number;
@@ -38,4 +39,13 @@ export type GridPreview = {
 
 export type GridAggregationResult = {
   cellsById: Record<string, GridCellAggregation>;
+};
+
+export type GridRenderSettings = {
+  useClassificationColors: boolean;
+  fillColor: string;
+  fillOpacity: number;
+  strokeColor: string;
+  strokeOpacity: number;
+  strokeWidth: number;
 };

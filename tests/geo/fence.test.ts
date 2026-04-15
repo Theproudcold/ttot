@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildFenceFeature,
+  clipFenceToBoundingBox,
+  clipFenceToValidityMask,
   getFenceSummary,
   isCoordinateInValidityMask,
   isFenceInsideValidityMask,
@@ -90,5 +92,121 @@ describe('raster validity guard', () => {
         validityMask,
       ),
     ).toBe(false);
+  });
+});
+
+describe('clipFenceToBoundingBox', () => {
+  it('keeps fence unchanged when fully inside bounding box', () => {
+    const rings: FenceRings = [
+      [
+        [1, 1],
+        [3, 1],
+        [3, 3],
+        [1, 3],
+        [1, 1],
+      ],
+    ];
+    const clipped = clipFenceToBoundingBox(rings, [0, 0, 5, 5]);
+    expect(clipped).toEqual(rings);
+  });
+
+  it('clips a polygon that exceeds the bounding box on one side', () => {
+    const rings: FenceRings = [
+      [
+        [0, 0],
+        [10, 0],
+        [10, 10],
+        [0, 10],
+        [0, 0],
+      ],
+    ];
+    const clipped = clipFenceToBoundingBox(rings, [2, 2, 8, 8]);
+    const summary = getFenceSummary(clipped);
+    expect(summary.bbox).toEqual([2, 2, 8, 8]);
+    expect(summary.area).toBe(36);
+    expect(summary.vertexCount).toBe(4);
+  });
+
+  it('clips a polygon that exceeds on all sides', () => {
+    const rings: FenceRings = [
+      [
+        [-5, -5],
+        [15, -5],
+        [15, 15],
+        [-5, 15],
+        [-5, -5],
+      ],
+    ];
+    const clipped = clipFenceToBoundingBox(rings, [0, 0, 10, 10]);
+    const summary = getFenceSummary(clipped);
+    expect(summary.bbox).toEqual([0, 0, 10, 10]);
+    expect(summary.area).toBe(100);
+    expect(summary.vertexCount).toBe(4);
+  });
+
+  it('returns a nearly-empty ring when polygon lies completely outside bounding box', () => {
+    const rings: FenceRings = [
+      [
+        [20, 20],
+        [30, 20],
+        [30, 30],
+        [20, 30],
+        [20, 20],
+      ],
+    ];
+    const clipped = clipFenceToBoundingBox(rings, [0, 0, 10, 10]);
+    expect(clipped[0].length).toBeLessThan(4);
+  });
+});
+
+describe('clipFenceToValidityMask', () => {
+  it('clips a polygon to the valid pixel outline', () => {
+    const validityMask: RasterValidityMask = {
+      width: 4,
+      height: 4,
+      boundingBox: [0, 0, 4, 4],
+      data: new Uint8Array([
+        0, 0, 0, 0,
+        0, 1, 1, 0,
+        0, 1, 1, 0,
+        0, 0, 0, 0,
+      ]),
+    };
+
+    const rings: FenceRings = [
+      [
+        [0, 0],
+        [4, 0],
+        [4, 4],
+        [0, 4],
+        [0, 0],
+      ],
+    ];
+
+    const clipped = clipFenceToValidityMask(rings, validityMask);
+    expect(clipped[0].length).toBeGreaterThanOrEqual(4);
+    expect(isFenceInsideValidityMask(clipped, validityMask)).toBe(true);
+  });
+
+  it('returns empty ring when no valid pixels are inside the fence', () => {
+    const validityMask: RasterValidityMask = {
+      width: 4,
+      height: 4,
+      boundingBox: [0, 0, 4, 4],
+      data: new Uint8Array(16).fill(0),
+    };
+
+    const rings: FenceRings = [
+      [
+        [0, 0],
+        [4, 0],
+        [4, 4],
+        [0, 4],
+        [0, 0],
+      ],
+    ];
+
+    const clipped = clipFenceToValidityMask(rings, validityMask);
+    expect(clipped[0].length).toBeLessThan(4);
   });
 });

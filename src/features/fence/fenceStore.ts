@@ -10,8 +10,10 @@ type FenceState = {
   startDraw: () => void;
   startEdit: () => void;
   setFence: (rings: FenceRings) => void;
+  updateFence: (rings: FenceRings) => void;
   setValidationMessage: (message: string | null) => void;
   clearFence: () => void;
+  stopInteraction: () => void;
   reset: () => void;
 };
 
@@ -31,10 +33,20 @@ export const useFenceStore = create<FenceState>((set) => ({
       mode: 'idle',
       validationMessage: null,
     }),
+  updateFence: (rings) =>
+    set({
+      fence: buildFenceFeature(rings),
+      validationMessage: null,
+    }),
   setValidationMessage: (validationMessage) => set({ validationMessage }),
   clearFence: () =>
     set({
       fence: null,
+      mode: 'idle',
+      validationMessage: null,
+    }),
+  stopInteraction: () =>
+    set({
       mode: 'idle',
       validationMessage: null,
     }),

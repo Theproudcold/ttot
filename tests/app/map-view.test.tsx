@@ -7,8 +7,17 @@ import { useMapUiStore } from '@/features/map/mapUiStore';
 import { useRasterStore } from '@/features/map/rasterStore';
 import { getGridCellStyleColors, scheduleMapResizeFrame } from '@/features/map/useMap';
 import { createMetricTransform } from '@/shared/geo/crs';
-import type { GridCell } from '@/shared/types/grid';
+import type { GridCell, GridRenderSettings } from '@/shared/types/grid';
 import type { RasterClassificationLayer, RasterMetadata } from '@/shared/types/raster';
+
+const defaultGridRenderSettings: GridRenderSettings = {
+  useClassificationColors: true,
+  fillColor: '#3388ff',
+  fillOpacity: 0.25,
+  strokeColor: '#3388ff',
+  strokeOpacity: 0.8,
+  strokeWidth: 1,
+};
 
 function createRulesClassificationLayer(): RasterClassificationLayer & { visible: boolean } {
   return {
@@ -149,8 +158,8 @@ describe('MapView', () => {
   });
 
   it('returns fully transparent grid styles when a cell has no aggregated output value', () => {
-    const transparentColors = getGridCellStyleColors(createGridCell(null), null);
-    const visibleColors = getGridCellStyleColors(createGridCell(0.62), createRulesClassificationLayer());
+    const transparentColors = getGridCellStyleColors(createGridCell(null), null, defaultGridRenderSettings);
+    const visibleColors = getGridCellStyleColors(createGridCell(0.62), createRulesClassificationLayer(), defaultGridRenderSettings);
 
     expect(transparentColors).toEqual({
       strokeColor: 'rgba(0, 0, 0, 0)',
