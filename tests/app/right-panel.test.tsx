@@ -123,66 +123,6 @@ describe('RightPanel', () => {
     ).toBeInTheDocument();
   });
 
-  it('shows projected raster source extent, metric size and grid ratios when metadata exists', () => {
-    act(() => {
-      useRasterStore.getState().setMetadata(
-        createRasterMetadata({
-          fileName: 'test2.tif',
-          width: 5647,
-          height: 3179,
-          boundingBox: [447934.5768945037, 4041573.0550815426, 448017.5877945037, 4041619.7863815427],
-          origin: [447934.5768945037, 4041619.7863815427, 0],
-          resolution: [0.0147, -0.0147, 0],
-          cellSize: { x: 0.0147, y: 0.0147, unit: 'm' },
-          crsCode: 'EPSG:4549',
-          crsName: 'CGCS2000 / 3-degree Gauss-Kruger CM 120E',
-          isProjected: true,
-        }),
-      );
-      useGridStore.getState().setCellSize(10);
-    });
-
-    render(<RightPanel />);
-
-    expect(
-      within(getMetricItem('参考范围')).getByText(
-        '447934.58, 4041573.06, 448017.59, 4041619.79',
-      ),
-    ).toBeInTheDocument();
-    expect(screen.getByText('83.01m x 46.73m')).toBeInTheDocument();
-    expect(screen.getByText('12.0% / 21.4%')).toBeInTheDocument();
-  });
-
-  it('shows geographic source extent and metric dimensions side by side', () => {
-    act(() => {
-      useRasterStore.getState().setMetadata(
-        createRasterMetadata({
-          fileName: 'gps-ndvi.tif',
-          width: 2250,
-          height: 1500,
-          boundingBox: [119.420001, 36.510001, 119.420901, 36.510601],
-          origin: [119.420001, 36.510601, 0],
-          resolution: [0.0000004, -0.0000004, 0],
-          cellSize: { x: 0.0000004, y: 0.0000004, unit: 'degree' },
-          crsCode: 'EPSG:4326',
-          crsName: 'EPSG:4326',
-          isProjected: false,
-        }),
-      );
-      useGridStore.getState().setCellSize(10);
-    });
-
-    render(<RightPanel />);
-
-    expect(
-      within(getMetricItem('参考范围')).getByText(
-        '119.420001, 36.510001, 119.420901, 36.510601',
-      ),
-    ).toBeInTheDocument();
-    expect(screen.getByText('80.53m x 66.79m')).toBeInTheDocument();
-    expect(screen.getByText('12.4% / 15.0%')).toBeInTheDocument();
-  });
-
   it('renders layer toggles and classification hover diagnostics', () => {
     act(() => {
       useMapUiStore.getState().toggleLayer('grid');

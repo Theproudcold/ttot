@@ -1,0 +1,126 @@
+.app-shell {
+  display: grid;
+  height: 100vh;
+  grid-template-rows: 64px minmax(0, 1fr);
+  overflow: hidden;
+  position: relative;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr) 320px;
+  gap: 16px;
+  padding: 16px;
+  overflow: hidden;
+  height: 100%;
+}
+
+.panel,
+.map-panel,
+.top-bar {
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.75);
+  box-shadow: 0 8px 32px rgba(31, 38, 135, 0.04);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+}
+
+.top-bar__title {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.top-bar__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.top-bar__hint {
+  font-size: 12px;
+  color: #666;
+  max-width: 320px;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.panel {
+  border-radius: 20px;
+  padding: 16px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.panel h2,
+.map-panel h2 {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+
+.panel h3 {
+  margin: 20px 0 8px;
+  font-size: 14px;
+  color: #666;
+}
+
+.map-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border-radius: 24px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.map-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 12px;
+}
+
+.map-panel__canvas {
+  position: relative;
+  flex: 1;
+  margin: 0 16px 16px;
+  border-radius: 18px;
+  border: 1px dashed rgba(0, 0, 0, 0.12);
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 245, 243, 0.96));
+  background-size: 36px 36px, 36px 36px, auto;
+}
+
+.map-panel__overlay {
+  position: absolute;
+  inset: 20px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+@media (max-width: 1200px) {
+  .workspace {
+    grid-template-columns: 280px minmax(0, 1fr);
+  }
+
+  .workspace > .panel:last-child {
+    display: none;
+  }
+}

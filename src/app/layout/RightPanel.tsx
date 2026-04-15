@@ -1,376 +1,28 @@
-import { useState, useEffect } from 'react';
-import { useDebounce } from '@/shared/hooks/useDebounce';
-import { useDebouncedCallback } from '@/shared/hooks/useDebouncedCallback';
-import { getDegreeToMeterScale } from '@/shared/geo/crs';
-
-function DebouncedColorPicker({
-  value,
-  onChange,
-  className
-}: {
-  value: string;
-  onChange: (val: string) => void;
-  className?: string;
-}) {
-  const [localColor, setLocalColor] = useState(value);
-
-  useEffect(() => {
-    setLocalColor(value);
-  }, [value]);
-
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      if (localColor !== value) {
-        onChange(localColor);
-      }
-    }, 300);
-    return () => clearTimeout(handler);
-  }, [localColor, value, onChange]);
-
-  return (
-    <input
-      type="color"
-      className={className}
-      value={localColor}
-      onChange={(e) => setLocalColor(e.target.value)}
-    />
-  );
-}
-
-function RuleNumberInput({
-  value,
-  onChange,
-  className,
-  placeholder,
-  step,
-  debounceMs = 300,
-}: {
-  value: number | null | undefined;
-  onChange: (val: number | null) => void;
-  className?: string;
-  placeholder?: string;
-  step?: string;
-  debounceMs?: number;
-}) {
-  const [localValue, setLocalValue] = useState(value == null ? '' : String(value));
-  const debouncedOnChange = useDebouncedCallback(onChange, debounceMs);
-
-  useEffect(() => {
-    if (value == null) {
-      if (localValue !== '') setLocalValue('');
-      return;
-    }
-    const currentParsed = Number(localValue);
-    // 只在外部赋的值真正改变时才同步更新本地输入内容，保护用户输入中的小数点或者尾留0
-    if (!Number.isFinite(currentParsed) || currentParsed !== value) {
-      setLocalValue(String(value));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value]);
-
-  return (
-    <input
-      type="number"
-      className={className}
-      placeholder={placeholder}
-      step={step}
-      value={localValue}
-      onChange={(e) => {
-        setLocalValue(e.target.value);
-        if (e.target.value === '') {
-          debouncedOnChange(null);
-          return;
-        }
-        const nextValue = Number(e.target.value);
-        if (Number.isFinite(nextValue)) {
-          debouncedOnChange(nextValue);
-        }
-      }}
-    />
-  );
-}
 import { useFenceStore } from '@/features/fence/fenceStore';
 import { useGridStore } from '@/features/grid/gridStore';
 import { useMapUiStore } from '@/features/map/mapUiStore';
 import { useRasterStore } from '@/features/map/rasterStore';
-import type { RasterClassificationMode, RasterMetadata, RasterRuleClassificationLayer } from '@/shared/types/raster';
+import type { RasterRuleClassificationLayer } from '@/shared/types/raster';
 
-function getCoordinateDecimals(metadata: RasterMetadata | null | undefined): number {
-  return metadata?.coordinateDisplayMode === 'geographic' ? 6 : 2;
-}
+import {
+  formatFenceArea,
+  formatFenceBbox,
+  formatGridRatio,
+  formatMetricNumber,
+  formatClassificationMode,
+  buildNewRulesClassificationLayer,
+  updateRuleTuple,
+} from './right-panel/classificationUtils';
+import { ClassificationLayerNameInput } from './right-panel/ClassificationLayerNameInput';
+import { DebouncedColorPicker } from './right-panel/DebouncedColorPicker';
+import { HoverInfoCard } from './right-panel/HoverInfoCard';
+import { RuleLabelInput } from './right-panel/RuleLabelInput';
+import { RuleNumberInput } from './right-panel/RuleNumberInput';
 
-function formatSourceExtent(metadata: RasterMetadata | null | undefined): string {
-  if (!metadata) {
-    return '--';
-  }
-
-  const decimals = getCoordinateDecimals(metadata);
-  return metadata.boundingBox.map((value) => value.toFixed(decimals)).join(', ');
-}
-
-function formatRasterPhysicalSize(metadata: RasterMetadata | null | undefined): string {
-  if (!metadata) {
-    return '--';
-  }
-
-  return `${metadata.metricWidth.toFixed(2)}m x ${metadata.metricHeight.toFixed(2)}m`;
-}
-
-function formatGridRatio(
-  cellSize: number,
-  metadata: RasterMetadata | null | undefined,
-): string {
-  if (!metadata || cellSize <= 0) {
-    return '--';
-  }
-
-  const width = metadata.metricWidth;
-  const height = metadata.metricHeight;
-
-  if (width <= 0 || height <= 0) {
-    return '--';
-  }
-
-  const widthRatio = (cellSize / width) * 100;
-  const heightRatio = (cellSize / height) * 100;
-  return `${widthRatio.toFixed(1)}% / ${heightRatio.toFixed(1)}%`;
-}
-
-function formatFenceArea(
-  area: number | null,
-  bbox: [number, number, number, number] | null | undefined,
-  isGeographic: boolean,
-): string {
-  if (area === null) {
-    return '--';
-  }
-  
-  if (isGeographic && bbox) {
-    const scale = getDegreeToMeterScale((bbox[1] + bbox[3]) / 2);
-    return `${(area * scale.scaleX * scale.scaleY).toFixed(2)} m²`;
-  }
-
-  return `${area.toFixed(2)} m²`;
-}
-
-function formatFenceBbox(bbox: [number, number, number, number] | null): string {
-  if (!bbox) {
-    return '--';
-  }
-
-  return bbox.map((value) => value.toFixed(2)).join(', ');
-}
-
-function formatMetricNumber(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) {
-    return '--';
-  }
-
-  return new Intl.NumberFormat('zh-CN', {
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
-function formatClassificationMode(mode: RasterClassificationMode): string {
-  return mode === 'gradient' ? '渐变' : '规则';
-}
-
-function createClassificationLayerId(existingIds: string[]): string {
-  let index = 1;
-  let nextId = `classification-rules-${index}`;
-
-  while (existingIds.includes(nextId)) {
-    index += 1;
-    nextId = `classification-rules-${index}`;
-  }
-
-  return nextId;
-}
-
-function createClassificationLayerLabel(existingLabels: string[]): string {
-  let index = 1;
-  let nextLabel = `自定义方案 ${index}`;
-
-  while (existingLabels.includes(nextLabel)) {
-    index += 1;
-    nextLabel = `自定义方案 ${index}`;
-  }
-
-  return nextLabel;
-}
-
-function buildNewRulesClassificationLayer(
-  existingIds: string[],
-  existingLabels: string[],
-): RasterRuleClassificationLayer & { visible: boolean } {
-  return {
-    id: createClassificationLayerId(existingIds),
-    label: createClassificationLayerLabel(existingLabels),
-    mode: 'rules',
-    noDataColor: '#00000000',
-    gradientStops: [],
-    rules: [
-      {
-        min: -1,
-        max: 0,
-        color: '#cccccc',
-        label: '规则 1',
-        applicationRate: null,
-      },
-    ],
-    visible: true,
-  };
-}
-
-function updateRuleTuple(
-  rules: RasterRuleClassificationLayer['rules'],
-  ruleIndex: number,
-  updater: (rule: RasterRuleClassificationLayer['rules'][number]) => RasterRuleClassificationLayer['rules'][number],
-): RasterRuleClassificationLayer['rules'] {
-  const [firstRule, ...restRules] = rules;
-
-  return [
-    ruleIndex === 0 ? updater(firstRule) : firstRule,
-    ...restRules.map((rule, index) => (index + 1 === ruleIndex ? updater(rule) : rule)),
-  ] as RasterRuleClassificationLayer['rules'];
-}
-
-function ClassificationLayerNameInput({
-  layerId,
-  label,
-  onChange,
-}: {
-  layerId: string;
-  label: string;
-  onChange: (id: string, updates: { label: string }) => void;
-}) {
-  const [localLabel, setLocalLabel] = useState(label);
-  const debouncedLabel = useDebounce(localLabel, 300);
-
-  useEffect(() => {
-    setLocalLabel(label);
-  }, [label]);
-
-  useEffect(() => {
-    if (debouncedLabel !== label) {
-      onChange(layerId, { label: debouncedLabel });
-    }
-  }, [debouncedLabel, label, layerId, onChange]);
-
-  return (
-    <input
-      id="classification-layer-name"
-      className="field-input"
-      type="text"
-      value={localLabel}
-      onChange={(event) => setLocalLabel(event.target.value)}
-    />
-  );
-}
-
-function RuleLabelInput({
-  ruleIndex,
-  label,
-  onChange,
-}: {
-  ruleIndex: number;
-  label: string;
-  onChange: (index: number, field: 'label', value: string) => void;
-}) {
-  const [localLabel, setLocalLabel] = useState(label);
-  const debouncedLabel = useDebounce(localLabel, 300);
-
-  useEffect(() => {
-    setLocalLabel(label);
-  }, [label]);
-
-  useEffect(() => {
-    if (debouncedLabel !== label) {
-      onChange(ruleIndex, 'label', debouncedLabel);
-    }
-  }, [debouncedLabel, label, ruleIndex, onChange]);
-
-  return (
-    <input
-      className="field-input"
-      type="text"
-      value={localLabel}
-      onChange={(event) => setLocalLabel(event.target.value)}
-    />
-  );
-}
-
-function HoverInfoCard() {
-  const metadata = useRasterStore((state) => state.metadata);
-  const hoverInfo = useMapUiStore((state) => state.hoverInfo);
-
-  if (!hoverInfo) {
-    return '把鼠标移到地图上，右侧会显示当前坐标、像元和值。';
-  }
-
-  return (
-    <dl className="metric-list">
-      <div className="metric-item">
-        <dt className="metric-label">坐标</dt>
-        <dd>{hoverInfo.coordinate.map((value) => value.toFixed(getCoordinateDecimals(metadata))).join(', ')}</dd>
-      </div>
-      <div className="metric-item">
-        <dt className="metric-label">像元位置</dt>
-        <dd>{`${hoverInfo.pixel.row} / ${hoverInfo.pixel.col}`}</dd>
-      </div>
-      <div className="metric-item">
-        <dt className="metric-label">像元值</dt>
-        <dd>
-          {hoverInfo.sampleValues
-            ? hoverInfo.sampleValues.map((value) => value.toFixed(2)).join(' / ')
-            : '--'}
-        </dd>
-      </div>
-      <div className="metric-item">
-        <dt className="metric-label">分类方案</dt>
-        <dd>{hoverInfo.classificationLayerName ?? '--'}</dd>
-      </div>
-      <div className="metric-item">
-        <dt className="metric-label">分级区间</dt>
-        <dd>{hoverInfo.classificationLabel ?? '--'}</dd>
-      </div>
-      <div className="metric-item">
-        <dt className="metric-label">分级颜色</dt>
-        <dd className="metric-color-value">
-          {hoverInfo.classificationColor ? (
-            <>
-              <span
-                aria-label="像元分级颜色"
-                className="color-chip"
-                style={{ backgroundColor: hoverInfo.classificationColor }}
-              />
-              {hoverInfo.classificationColor}
-            </>
-          ) : (
-            '--'
-          )}
-        </dd>
-      </div>
-      <div className="metric-item">
-        <dt className="metric-label">围栏命中</dt>
-        <dd>{hoverInfo.inFence ? '是' : '否'}</dd>
-      </div>
-      <div className="metric-item">
-        <dt className="metric-label">网格命中</dt>
-        <dd>{hoverInfo.gridCellId ?? '--'}</dd>
-      </div>
-      <div className="metric-item">
-        <dt className="metric-label">网格均值</dt>
-        <dd>{formatMetricNumber(hoverInfo.gridMeanValue)}</dd>
-      </div>
-      <div className="metric-item">
-        <dt className="metric-label">有效像元数</dt>
-        <dd>{formatMetricNumber(hoverInfo.gridValidPixelCount)}</dd>
-      </div>
-    </dl>
-  );
-}
-
+/**
+ * 右侧面板。
+ * 展示围栏、网格、图层、悬停信息及分类方案的编辑与控制。
+ */
 export function RightPanel() {
   const metadata = useRasterStore((state) => state.metadata);
   const status = useRasterStore((state) => state.status);
@@ -473,23 +125,33 @@ export function RightPanel() {
             const rules = activeClassificationLayer.rules;
             let totalMatchedCount = 0;
             let totalFertilizer = 0;
-            for (const rule of rules) {
+            const ruleStats = rules.map((rule) => {
               let ruleMatchCount = 0;
               for (const cell of gridCells) {
-                const val = cell.aggregation?.meanValue;
+                const val = cell.aggregation?.outputValue;
                 if (val == null) continue;
                 if (val >= rule.min && (rule.max === null || val <= rule.max)) {
                   ruleMatchCount++;
                 }
               }
               totalMatchedCount += ruleMatchCount;
-              if (rule.applicationRate != null) {
-                totalFertilizer += rule.applicationRate * ruleMatchCount;
-              }
-            }
+              const ruleAmount = rule.applicationRate != null ? rule.applicationRate * ruleMatchCount : 0;
+              totalFertilizer += ruleAmount;
+              return {
+                label: rule.label || `规则 ${rules.indexOf(rule) + 1}`,
+                amount: ruleAmount,
+                matchCount: ruleMatchCount,
+              };
+            });
             const totalArea = totalMatchedCount * cellAreaM2;
             return (
               <>
+                {ruleStats.map((stat) => (
+                  <div key={stat.label} className="metric-item">
+                    <dt className="metric-label">{stat.label} 用药量</dt>
+                    <dd>{formatMetricNumber(stat.amount)}</dd>
+                  </div>
+                ))}
                 <div className="metric-item" style={{ borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: '8px', marginTop: '4px' }}>
                   <dt className="metric-label">分类覆盖面积</dt>
                   <dd>{formatMetricNumber(totalArea)} m²</dd>
@@ -503,26 +165,6 @@ export function RightPanel() {
           })()}
         </dl>
       </div>
-
-      <h3>影像信息</h3>
-      <div className="card">
-        <dl className="metric-list">
-          <div className="metric-item">
-            <dt className="metric-label">影像状态</dt>
-            <dd>{status === 'ready' ? '已就绪' : status === 'loading' ? '读取中' : status === 'error' ? '异常' : '等待上传'}</dd>
-          </div>
-          <div className="metric-item">
-            <dt className="metric-label">参考范围</dt>
-            <dd>{formatSourceExtent(metadata)}</dd>
-          </div>
-          <div className="metric-item">
-            <dt className="metric-label">实际尺寸</dt>
-            <dd>{formatRasterPhysicalSize(metadata)}</dd>
-          </div>
-        </dl>
-      </div>
-
-
 
       <h3>图层</h3>
       <div className="card">
@@ -690,7 +332,7 @@ export function RightPanel() {
                     let matchedCount = 0;
                     if (gridCells && gridCells.length > 0) {
                       for (const cell of gridCells) {
-                        const val = cell.aggregation?.meanValue;
+                        const val = cell.aggregation?.outputValue;
                         if (val == null) continue;
                         if (val >= rule.min && (rule.max === null || val <= rule.max)) {
                           matchedCount++;
@@ -733,11 +375,11 @@ export function RightPanel() {
                             />
                           </div>
                           <div style={{ display: 'flex', flexDirection: 'column' }}>
-                            <span className="field-label" style={{ fontSize: '10px' }}>单格用药重量</span>
+                            <span className="field-label" style={{ fontSize: '10px' }}>单格用药量</span>
                             <RuleNumberInput
                               className="field-input"
                               step="0.01"
-                              placeholder="例如: 0.5"
+                              placeholder="例如: 200"
                               value={rule.applicationRate}
                               onChange={(nextValue) => {
                                 updateRuleField(index, 'applicationRate', nextValue);
@@ -772,7 +414,7 @@ export function RightPanel() {
                               <strong>{formatMetricNumber(areaM2)} m²</strong>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <span style={{ color: '#666' }}>预计用药重量：</span>
+                              <span style={{ color: '#666' }}>该规则用药量：</span>
                               <strong style={{ color: '#ff6b00' }}>{formatMetricNumber(totalAmount)}</strong>
                             </div>
                           </div>
@@ -785,10 +427,11 @@ export function RightPanel() {
                     className="toolbar-button"
                     style={{ marginTop: '8px', width: '100%' }}
                     onClick={() => {
+                      const lastRule = activeClassificationLayer.rules[activeClassificationLayer.rules.length - 1];
                       updateClassificationLayer(activeClassificationLayer.id, {
                         rules: [
                           ...activeClassificationLayer.rules,
-                          { min: 0, max: null, color: '#ff0000', label: `规则 ${activeClassificationLayer.rules.length + 1}`, applicationRate: null }
+                          { min: lastRule?.max ?? 0, max: null, color: '#ff0000', label: `规则 ${activeClassificationLayer.rules.length + 1}`, applicationRate: null }
                         ] as RasterRuleClassificationLayer['rules']
                       });
                     }}
