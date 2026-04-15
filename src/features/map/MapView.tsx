@@ -20,11 +20,40 @@ function getVisibleClassificationLayer(
   return classificationLayers.find((layer) => layer.visible) ?? null;
 }
 
+function MapHoverCard() {
+  const metadata = useRasterStore((state) => state.metadata);
+  const hoverInfo = useMapUiStore((state) => state.hoverInfo);
+
+  if (!hoverInfo) {
+    return null;
+  }
+
+  const decimals = metadata?.coordinateDisplayMode === 'geographic' ? 6 : 2;
+
+  return (
+    <div className="hover-card" aria-label="hover-card">
+      <div>{`坐标：${hoverInfo.coordinate[0].toFixed(decimals)}, ${hoverInfo.coordinate[1].toFixed(decimals)}`}</div>
+      <div>{`像元：${hoverInfo.pixel.row} / ${hoverInfo.pixel.col}`}</div>
+      <div>
+        {`像元值：${
+          hoverInfo.sampleValues
+            ? hoverInfo.sampleValues.map((value) => value.toFixed(2)).join(' / ')
+            : '--'
+        }`}
+      </div>
+      <div>{`分级区间：${hoverInfo.classificationLabel ?? '--'}`}</div>
+      <div>{`命中围栏：${hoverInfo.inFence ? '是' : '否'}`}</div>
+      <div>{`命中网格：${hoverInfo.gridCellId ?? '--'}`}</div>
+      <div>{`网格均值：${hoverInfo.gridMeanValue?.toFixed(2) ?? '--'}`}</div>
+      <div>{`有效像元：${hoverInfo.gridValidPixelCount ?? '--'}`}</div>
+    </div>
+  );
+}
+
 export function MapView() {
   useRasterLoader();
 
   const metadata = useRasterStore((state) => state.metadata);
-  const hoverInfo = useMapUiStore((state) => state.hoverInfo);
   const classificationLayers = useMapUiStore((state) => state.classificationLayers);
   const visibleClassificationLayerId = useMapUiStore((state) => state.visibleClassificationLayerId);
   const previewStatus = useRasterStore((state) => state.previewStatus);
@@ -39,8 +68,6 @@ export function MapView() {
     classificationLayers,
     visibleClassificationLayerId,
   );
-  
-  const decimals = metadata?.coordinateDisplayMode === 'geographic' ? 6 : 2;
   const legendData =
     preview?.sampleBandCount === 1 && visibleClassificationLayer
       ? buildRasterClassificationLegendData(visibleClassificationLayer)
@@ -95,24 +122,7 @@ export function MapView() {
                   : '网格预览会根据缩放级别降级显示')}
           </span>
         </div>
-        {hoverInfo ? (
-          <div className="hover-card" aria-label="hover-card">
-            <div>{`坐标：${hoverInfo.coordinate[0].toFixed(decimals)}, ${hoverInfo.coordinate[1].toFixed(decimals)}`}</div>
-            <div>{`像元：${hoverInfo.pixel.row} / ${hoverInfo.pixel.col}`}</div>
-            <div>
-              {`像元值：${
-                hoverInfo.sampleValues
-                  ? hoverInfo.sampleValues.map((value) => value.toFixed(2)).join(' / ')
-                  : '--'
-              }`}
-            </div>
-            <div>{`分级区间：${hoverInfo.classificationLabel ?? '--'}`}</div>
-            <div>{`命中围栏：${hoverInfo.inFence ? '是' : '否'}`}</div>
-            <div>{`命中网格：${hoverInfo.gridCellId ?? '--'}`}</div>
-            <div>{`网格均值：${hoverInfo.gridMeanValue?.toFixed(2) ?? '--'}`}</div>
-            <div>{`有效像元：${hoverInfo.gridValidPixelCount ?? '--'}`}</div>
-          </div>
-        ) : null}
+        <MapHoverCard />
         {legendData && visibleClassificationLayer ? (
           <div className="legend-card" aria-label="raster-legend">
             <div className="legend-card__title">{visibleClassificationLayer.label}</div>

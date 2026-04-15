@@ -1,12 +1,10 @@
-import { fromArrayBuffer } from 'geotiff';
-
 import type { MetricTransform } from '@/shared/geo/crs';
 import { getFenceSummary, isPointInFence } from '@/shared/geo/fence';
 import {
   aggregateGridCellsFromRasterWindow,
   applyGridAggregationToBands,
 } from '@/shared/geo/gridAggregation';
-import { readBlobBuffer } from '@/shared/geo/raster';
+import { openRasterSession } from '@/shared/geo/raster';
 import type { FenceBoundingBox, FencePosition, FenceRings } from '@/shared/types/fence';
 import type { GridAggregationResult } from '@/shared/types/grid';
 import type { RasterOrigin, RasterResolution } from '@/shared/types/raster';
@@ -209,9 +207,7 @@ export async function readGeoTiffFenceWindow(input: {
   samples?: number[];
 }): Promise<GeoTiffFenceWindowData> {
   const { file, fenceRings, samples } = input;
-  const arrayBuffer = await readBlobBuffer(file);
-  const tiff = await fromArrayBuffer(arrayBuffer);
-  const image = await tiff.getImage();
+  const image = await openRasterSession(file).getImage();
   const origin = image.getOrigin() as RasterOrigin;
   const resolution = image.getResolution() as RasterResolution;
   const window = getPixelWindowFromFenceBoundingBox({

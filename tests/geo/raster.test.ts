@@ -27,11 +27,15 @@ import {
   getSampleRanges,
   loadRasterMetadata,
   loadRasterPreview,
+  loadRasterValidityMask,
+  resetRasterSessionCache,
 } from '@/shared/geo/raster';
+import { readGeoTiffFenceWindow } from '@/shared/geo/geotiffExport';
 
 beforeEach(() => {
   fromArrayBufferMock.mockReset();
   fromBlobMock.mockReset();
+  resetRasterSessionCache();
 });
 
 afterEach(() => {
@@ -335,27 +339,30 @@ describe('loadRasterMetadata', () => {
     }) as unknown as File;
     const progress = vi.fn();
 
-    const pendingMetadata = loadRasterMetadata(file, progress);
-    await Promise.resolve();
-    await Promise.resolve();
+    try {
+      const pendingMetadata = loadRasterMetadata(file, progress);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
 
-    expect(progress).toHaveBeenCalledWith(96, '正在解析元信息');
-    expect(fromArrayBufferMock).not.toHaveBeenCalled();
+      expect(progress).toHaveBeenCalledWith(96, '正在解析元信息');
+      expect(fromArrayBufferMock).not.toHaveBeenCalled();
 
-    if (!rafCallback) {
-      throw new Error('requestAnimationFrame callback was not scheduled');
+      if (!rafCallback) {
+        throw new Error('requestAnimationFrame callback was not scheduled');
+      }
+
+      const scheduledFrame = rafCallback as FrameRequestCallback;
+      scheduledFrame(16);
+      const metadata = await pendingMetadata;
+
+      expect(fromArrayBufferMock).toHaveBeenCalledTimes(1);
+      expect(metadata.fileName).toBe('test2.tif');
+    } finally {
+      globalThis.FileReader = originalFileReader;
+      globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+      globalThis.cancelAnimationFrame = originalCancelAnimationFrame;
     }
-
-    const scheduledFrame = rafCallback as FrameRequestCallback;
-    scheduledFrame(16);
-    const metadata = await pendingMetadata;
-
-    expect(fromArrayBufferMock).toHaveBeenCalledTimes(1);
-    expect(metadata.fileName).toBe('test2.tif');
-
-    globalThis.FileReader = originalFileReader;
-    globalThis.requestAnimationFrame = originalRequestAnimationFrame;
-    globalThis.cancelAnimationFrame = originalCancelAnimationFrame;
   });
 });
 
@@ -445,6 +452,63 @@ describe('loadRasterPreview', () => {
         255, 255, 255, 255,
       ]),
     );
+  });
+
+  it('reuses the same decoded GeoTIFF session across metadata, preview, validity and fence-window reads', async () => {
+    const file = new File([new Uint8Array([1, 2, 3, 4])], 'shared-session.tif', {
+      type: 'image/tiff',
+    });
+    const readRasters = vi.fn().mockImplementation((options?: { interleave?: boolean }) => {
+      if (options?.interleave) {
+        return Float32Array.from([1, 2, 3, 4]);
+      }
+
+      return [Float32Array.from([1, 2, 3, 4])];
+    });
+    const image = {
+      getWidth: () => 2,
+      getHeight: () => 2,
+      getBoundingBox: () => [100, 180, 120, 200] as [number, number, number, number],
+      getOrigin: () => [100, 200, 0] as [number, number, number],
+      getResolution: () => [10, -10, 0] as [number, number, number],
+      getGeoKeys: () => ({
+        ProjectedCSTypeGeoKey: 4549,
+      }),
+      getSamplesPerPixel: () => 1,
+      getBitsPerSample: () => 32,
+      getSampleFormat: () => 3,
+      getGDALNoData: () => -9999,
+      getFileDirectory: () => ({
+        PhotometricInterpretation: 1,
+      }),
+      fileDirectory: {
+        GDAL_NODATA: -9999,
+      },
+      readRasters,
+    };
+
+    fromArrayBufferMock.mockResolvedValue({
+      getImage: vi.fn().mockResolvedValue(image),
+    });
+
+    await loadRasterMetadata(file);
+    await loadRasterPreview(file);
+    await loadRasterValidityMask(file);
+    await readGeoTiffFenceWindow({
+      file,
+      fenceRings: [
+        [
+          [100, 180],
+          [120, 180],
+          [120, 200],
+          [100, 200],
+          [100, 180],
+        ],
+      ],
+      samples: [0],
+    });
+
+    expect(fromArrayBufferMock).toHaveBeenCalledTimes(1);
   });
 });
 

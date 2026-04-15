@@ -5,7 +5,12 @@ import { MapView } from '@/features/map/MapView';
 import { useFenceStore } from '@/features/fence/fenceStore';
 import { useMapUiStore } from '@/features/map/mapUiStore';
 import { useRasterStore } from '@/features/map/rasterStore';
-import { getGridCellStyleColors, scheduleMapResizeFrame } from '@/features/map/useMap';
+import {
+  createAnimationFrameValueScheduler,
+  createGridCellHitTester,
+  getGridCellStyleColors,
+  scheduleMapResizeFrame,
+} from '@/features/map/useMap';
 import { createMetricTransform } from '@/shared/geo/crs';
 import type { GridCell, GridRenderSettings } from '@/shared/types/grid';
 import type { RasterClassificationLayer, RasterMetadata } from '@/shared/types/raster';
@@ -60,6 +65,21 @@ function createGridCell(outputValue: number | null): GridCell {
       meanValue: outputValue,
       outputValue,
     },
+  };
+}
+
+function createIndexedGridCell(
+  id: string,
+  row: number,
+  col: number,
+  polygon: GridCell['polygon'],
+): GridCell {
+  return {
+    id,
+    row,
+    col,
+    center: polygon[0][0] ?? [0, 0],
+    polygon,
   };
 }
 
@@ -167,6 +187,90 @@ describe('MapView', () => {
     });
     expect(visibleColors.strokeColor).toBe('rgba(0, 0, 0, 0.18)');
     expect(visibleColors.fillColor).toBe('#1f7a1f');
+  });
+
+  it('coalesces multiple animation-frame values into the latest payload', () => {
+    const received: number[] = [];
+    const frameCallbacks: FrameRequestCallback[] = [];
+    const scheduler = vi.fn((callback: FrameRequestCallback) => {
+      frameCallbacks.push(callback);
+      return frameCallbacks.length;
+    });
+    const cancel = vi.fn();
+    const valueScheduler = createAnimationFrameValueScheduler(
+      (value: number) => {
+        received.push(value);
+      },
+      scheduler,
+      cancel,
+    );
+
+    valueScheduler.schedule(1);
+    valueScheduler.schedule(2);
+    valueScheduler.schedule(3);
+
+    expect(scheduler).toHaveBeenCalledTimes(1);
+    expect(received).toEqual([]);
+
+    frameCallbacks[0]?.(16);
+
+    expect(received).toEqual([3]);
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it('finds grid hits from the indexed row and column before falling back to polygon scan', () => {
+    const hitTester = createGridCellHitTester({
+      cells: [
+        createIndexedGridCell('r0-c0', 0, 0, [
+          [
+            [0, 0],
+            [1, 0],
+            [1, 1],
+            [0, 1],
+            [0, 0],
+          ],
+        ]),
+      ],
+      fenceRings: [
+        [
+          [0, 0],
+          [1, 0],
+          [1, 1],
+          [0, 1],
+          [0, 0],
+        ],
+      ],
+      cellSize: 1,
+    });
+
+    expect(hitTester([0.5, 0.5])?.id).toBe('r0-c0');
+  });
+
+  it('falls back to polygon scan when indexed lookup misses', () => {
+    const fallbackCell = createIndexedGridCell('r9-c9', 9, 9, [
+      [
+        [0, 0],
+        [1, 0],
+        [1, 1],
+        [0, 1],
+        [0, 0],
+      ],
+    ]);
+    const hitTester = createGridCellHitTester({
+      cells: [fallbackCell],
+      fenceRings: [
+        [
+          [0, 0],
+          [1, 0],
+          [1, 1],
+          [0, 1],
+          [0, 0],
+        ],
+      ],
+      cellSize: 1,
+    });
+
+    expect(hitTester([0.5, 0.5])?.id).toBe('r9-c9');
   });
 
   it('renders hover info card with projected coordinates using two decimals', () => {

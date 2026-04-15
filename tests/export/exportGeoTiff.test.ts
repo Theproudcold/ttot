@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fromArrayBuffer } from 'geotiff';
 
 const { fromArrayBufferMock, readBlobBufferMock, writeGeoTiffBufferMock } = vi.hoisted(() => ({
   fromArrayBufferMock: vi.fn(),
@@ -13,6 +12,15 @@ vi.mock('geotiff', () => ({
 
 vi.mock('@/shared/geo/raster', () => ({
   readBlobBuffer: readBlobBufferMock,
+  openRasterSession: (source: File) => ({
+    source,
+    getArrayBuffer: async () => await readBlobBufferMock(source),
+    getImage: async () => {
+      const arrayBuffer = await readBlobBufferMock(source);
+      const tiff = await fromArrayBufferMock(arrayBuffer);
+      return await tiff.getImage();
+    },
+  }),
 }));
 
 vi.mock('@/shared/geo/geotiffWriter', () => ({

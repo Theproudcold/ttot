@@ -15,7 +15,7 @@ type GridState = {
 };
 
 const INITIAL_STATE = {
-  cellSize: 10,
+  cellSize: 1,
   rotation: 0,
   summary: null as GridSummary | null,
   cells: [] as GridCell[],

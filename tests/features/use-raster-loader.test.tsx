@@ -43,12 +43,16 @@ describe('useRasterLoader', () => {
     loadRasterMetadataMock.mockReset();
     loadRasterPreviewMock.mockReset();
     loadRasterValidityMaskMock.mockReset();
+    performance.clearMarks();
+    performance.clearMeasures();
   });
 
   afterEach(() => {
     act(() => {
       useRasterStore.getState().reset();
     });
+    performance.clearMarks();
+    performance.clearMeasures();
   });
 
   it('keeps metadata, preview and validity loading alive after internal status updates', async () => {
@@ -140,5 +144,9 @@ describe('useRasterLoader', () => {
       expect(useRasterStore.getState().validityMask).toEqual(validityMask);
       expect(useRasterStore.getState().validityStatus).toBe('ready');
     });
+
+    expect(performance.getEntriesByName('raster:metadata', 'measure')).toHaveLength(1);
+    expect(performance.getEntriesByName('raster:preview', 'measure')).toHaveLength(1);
+    expect(performance.getEntriesByName('raster:validity-mask', 'measure')).toHaveLength(1);
   });
 });

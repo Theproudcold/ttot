@@ -48,6 +48,18 @@ export type RasterClassificationLegendData = {
   gradientCss: string | null;
 };
 
+type RasterSource = File | string;
+type RasterImageHandle = Awaited<ReturnType<Awaited<ReturnType<typeof fromArrayBuffer>>['getImage']>>;
+
+export type RasterSession = {
+  source: RasterSource;
+  getArrayBuffer: (onProgress?: (progress: number | null) => void) => Promise<ArrayBuffer>;
+  getImage: () => Promise<RasterImageHandle>;
+};
+
+let fileRasterSessionCache = new WeakMap<File, RasterSession>();
+const urlRasterSessionCache = new Map<string, RasterSession>();
+
 function waitForNextPaint(): Promise<void> {
   return new Promise((resolve) => {
     if (typeof requestAnimationFrame === 'function') {
@@ -826,33 +838,105 @@ export async function readBlobBuffer(
   return buffer;
 }
 
+function createRasterSession(source: RasterSource): RasterSession {
+  let bufferPromise: Promise<ArrayBuffer> | null = null;
+  let imagePromise: Promise<RasterImageHandle> | null = null;
+
+  const getArrayBuffer = (onProgress?: (progress: number | null) => void) => {
+    if (!bufferPromise) {
+      bufferPromise = (
+        typeof source === 'string'
+          ? fetchRasterBuffer(source, onProgress)
+          : readBlobBuffer(source, onProgress)
+      ).catch((error) => {
+        bufferPromise = null;
+        throw error;
+      });
+
+      return bufferPromise;
+    }
+
+    return bufferPromise.then((buffer) => {
+      onProgress?.(100);
+      return buffer;
+    });
+  };
+
+  const getImage = () => {
+    if (!imagePromise) {
+      imagePromise = (async () => {
+        const arrayBuffer = await getArrayBuffer();
+        const tiff = await fromArrayBuffer(arrayBuffer);
+        return await tiff.getImage();
+      })().catch((error) => {
+        imagePromise = null;
+        throw error;
+      });
+    }
+
+    return imagePromise;
+  };
+
+  return {
+    source,
+    getArrayBuffer,
+    getImage,
+  };
+}
+
+export function openRasterSession(source: RasterSource): RasterSession {
+  if (typeof source === 'string') {
+    const existingSession = urlRasterSessionCache.get(source);
+    if (existingSession) {
+      return existingSession;
+    }
+
+    const nextSession = createRasterSession(source);
+    urlRasterSessionCache.set(source, nextSession);
+    return nextSession;
+  }
+
+  const existingSession = fileRasterSessionCache.get(source);
+  if (existingSession) {
+    return existingSession;
+  }
+
+  const nextSession = createRasterSession(source);
+  fileRasterSessionCache.set(source, nextSession);
+  return nextSession;
+}
+
+export function resetRasterSessionCache() {
+  fileRasterSessionCache = new WeakMap<File, RasterSession>();
+  urlRasterSessionCache.clear();
+}
+
 export async function loadRasterMetadata(
   source: File | string,
   onProgress?: (progress: number | null, phase: string) => void,
 ): Promise<RasterMetadata> {
   const isUrlSource = typeof source === 'string';
   const fileName = isUrlSource ? source.split('/').pop() || 'unknown.tif' : source.name;
+  const session = openRasterSession(source);
 
   onProgress?.(0, isUrlSource ? '正在下载影像' : '正在读取本地文件');
   const image = isUrlSource
     ? await (async () => {
-        const arrayBuffer = await fetchRasterBuffer(source, (progress) => {
+        await session.getArrayBuffer((progress) => {
           onProgress?.(progress, '正在下载影像');
         });
         onProgress?.(90, '正在解析元信息');
         await waitForNextPaint();
-        const tiff = await fromArrayBuffer(arrayBuffer);
-        return await tiff.getImage();
+        return await session.getImage();
       })()
     : await (async () => {
-        const arrayBuffer = await readBlobBuffer(source, (progress) => {
+        await session.getArrayBuffer((progress) => {
           onProgress?.(progress, '正在读取本地文件');
         });
 
         onProgress?.(96, '正在解析元信息');
         await waitForNextPaint();
-        const tiff = await fromArrayBuffer(arrayBuffer);
-        return await tiff.getImage();
+        return await session.getImage();
       })();
 
   onProgress?.(100, '正在整理地图参数');
@@ -873,20 +957,21 @@ export async function loadRasterPreview(
   source: File | string,
   onProgress?: (progress: number | null, phase: string) => void,
 ): Promise<RasterPreview> {
+  const session = openRasterSession(source);
   onProgress?.(5, '正在生成预览');
-  const arrayBuffer =
+  await session.getArrayBuffer(
     typeof source === 'string'
-      ? await fetchRasterBuffer(source)
-      : await readBlobBuffer(source, (progress) => {
+      ? undefined
+      : (progress) => {
           if (progress !== null && progress < 70) {
             onProgress?.(progress, '正在读取预览文件');
           }
-        });
+        },
+  );
 
   onProgress?.(72, '正在读取预览像元');
   await waitForNextPaint();
-  const tiff = await fromArrayBuffer(arrayBuffer);
-  const image = await tiff.getImage();
+  const image = await session.getImage();
   const noDataValue = normalizeNoDataValue(image.getGDALNoData?.() ?? image.fileDirectory?.GDAL_NODATA);
   const previewSize = calculatePreviewDimensions(image.getWidth(), image.getHeight());
   const bandCount = Math.min(3, Math.max(1, image.getSamplesPerPixel()));
@@ -926,11 +1011,7 @@ export async function loadRasterValidityMask(
   onProgress?: (progress: number | null, phase: string) => void,
 ): Promise<RasterValidityMask> {
   onProgress?.(0, '正在提取有效区域');
-
-  const image =
-    typeof source === 'string'
-      ? await (await fromArrayBuffer(await fetchRasterBuffer(source))).getImage()
-      : await (await fromArrayBuffer(await readBlobBuffer(source))).getImage();
+  const image = await openRasterSession(source).getImage();
 
   onProgress?.(45, '正在抽样有效像元');
   const validityMask = await buildRasterValidityMask(image);

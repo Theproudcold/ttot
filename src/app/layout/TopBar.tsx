@@ -1,9 +1,14 @@
 import { useRasterStore } from '@/features/map/rasterStore';
 
+function PointerCoordinateStatus() {
+  const pointerText = useRasterStore((state) => state.pointerText);
+
+  return <span>鼠标坐标：{pointerText}</span>;
+}
+
 export function TopBar() {
   const metadata = useRasterStore((state) => state.metadata);
   const sourceLabel = useRasterStore((state) => state.sourceLabel);
-  const pointerText = useRasterStore((state) => state.pointerText);
   const loadingPhase = useRasterStore((state) => state.loadingPhase);
   const loadingProgress = useRasterStore((state) => state.loadingProgress);
   const validityStatus = useRasterStore((state) => state.validityStatus);
@@ -26,7 +31,7 @@ export function TopBar() {
                 ? '提取失败'
                 : '--'}
         </span>
-        <span>鼠标坐标：{pointerText}</span>
+        <PointerCoordinateStatus />
       </div>
     </header>
   );
