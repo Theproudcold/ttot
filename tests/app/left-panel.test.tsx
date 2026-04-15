@@ -1,5 +1,5 @@
-import { act, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { LeftPanel } from '@/app/layout/LeftPanel';
 import { useFenceStore } from '@/features/fence/fenceStore';
@@ -48,6 +48,7 @@ describe('LeftPanel', () => {
       useGridStore.getState().reset();
       useMapUiStore.getState().reset();
     });
+    vi.useRealTimers();
   });
 
   it('renders projected raster metadata with original extent, metric size and grid ratio', () => {
@@ -71,6 +72,7 @@ describe('LeftPanel', () => {
           isProjected: true,
         }),
       );
+      useGridStore.getState().setCellSize(10);
     });
 
     render(<LeftPanel />);
@@ -103,6 +105,7 @@ describe('LeftPanel', () => {
           isProjected: false,
         }),
       );
+      useGridStore.getState().setCellSize(10);
     });
 
     render(<LeftPanel />);
@@ -155,10 +158,31 @@ describe('LeftPanel', () => {
     expect(screen.getByText('未选择文件')).toBeInTheDocument();
   });
 
-  it('uses 10 meters as the default grid cell size', () => {
+  it('uses 1 meter as the default grid cell size', () => {
     render(<LeftPanel />);
 
-    expect(screen.getByDisplayValue('10')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('1')).toBeInTheDocument();
+  });
+
+  it('keeps the default grid cell size after reset even when a stale debounced value exists', () => {
+    vi.useFakeTimers();
+
+    render(<LeftPanel />);
+
+    const input = screen.getByLabelText('网格尺寸（米）');
+
+    fireEvent.change(input, { target: { value: '0.5' } });
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(useGridStore.getState().cellSize).toBe(0.5);
+
+    act(() => {
+      useGridStore.getState().reset();
+    });
+
+    expect(useGridStore.getState().cellSize).toBe(1);
+    expect(screen.getByDisplayValue('1')).toBeInTheDocument();
   });
 
   it('shows loading progress when local file parsing is in flight', () => {

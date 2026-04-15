@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useDebounce } from '@/shared/hooks/useDebounce';
+import { useState, useEffect, useRef } from 'react';
+import { useDebouncedCallback } from '@/shared/hooks/useDebouncedCallback';
 
 import {
   createFenceGeoJson,
@@ -86,18 +86,26 @@ export function LeftPanel() {
     null;
 
   const [localCellSize, setLocalCellSize] = useState(String(cellSize));
-  const debouncedCellSize = useDebounce(localCellSize, 300);
+  const latestCellSizeInputRef = useRef(String(cellSize));
+  const cellSizeRef = useRef(cellSize);
 
-  useEffect(() => {
-    setLocalCellSize(String(cellSize));
-  }, [cellSize]);
+  const commitCellSize = useDebouncedCallback((nextRawValue: string) => {
+    if (nextRawValue !== latestCellSizeInputRef.current) {
+      return;
+    }
 
-  useEffect(() => {
-    const nextValue = Number(debouncedCellSize);
-    if (Number.isFinite(nextValue) && nextValue > 0 && nextValue !== cellSize) {
+    const nextValue = Number(nextRawValue);
+    if (Number.isFinite(nextValue) && nextValue > 0 && nextValue !== cellSizeRef.current) {
       setCellSize(nextValue);
     }
-  }, [debouncedCellSize, cellSize, setCellSize]);
+  }, 300);
+
+  useEffect(() => {
+    const nextCellSize = String(cellSize);
+    cellSizeRef.current = cellSize;
+    latestCellSizeInputRef.current = nextCellSize;
+    setLocalCellSize(nextCellSize);
+  }, [cellSize]);
 
   const handleGeoTiffExport = async () => {
     if (!sourceFile || !fence || loading.active) {
@@ -286,7 +294,17 @@ export function LeftPanel() {
           min="0.1"
           step="0.1"
           value={localCellSize}
-          onChange={(event) => setLocalCellSize(event.target.value)}
+          onChange={(event) => {
+            const nextRawValue = event.target.value;
+            latestCellSizeInputRef.current = nextRawValue;
+            setLocalCellSize(nextRawValue);
+
+            if (nextRawValue === '') {
+              return;
+            }
+
+            commitCellSize(nextRawValue);
+          }}
         />
         <div className="metric-section metric-section--compact" style={{ marginTop: 12 }}>
           <dl className="metric-list metric-list--two-col">
