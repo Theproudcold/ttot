@@ -143,7 +143,9 @@ describe('LeftPanel', () => {
     render(<LeftPanel />);
 
     expect(screen.getByDisplayValue('0.5')).toBeInTheDocument();
-    expect(screen.getByText('预计网格：40000')).toBeInTheDocument();
+    expect(
+      within(screen.getByText('预计网格').closest('.metric-item') as HTMLElement).getByText('40000'),
+    ).toBeInTheDocument();
   });
 
   it('shows upload control instead of default bundled tif', () => {

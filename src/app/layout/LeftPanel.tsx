@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useDebounce } from '@/shared/hooks/useDebounce';
 
 import {
   createFenceGeoJson,
@@ -84,6 +85,20 @@ export function LeftPanel() {
     classificationLayers[0] ??
     null;
 
+  const [localCellSize, setLocalCellSize] = useState(String(cellSize));
+  const debouncedCellSize = useDebounce(localCellSize, 300);
+
+  useEffect(() => {
+    setLocalCellSize(String(cellSize));
+  }, [cellSize]);
+
+  useEffect(() => {
+    const nextValue = Number(debouncedCellSize);
+    if (Number.isFinite(nextValue) && nextValue > 0 && nextValue !== cellSize) {
+      setCellSize(nextValue);
+    }
+  }, [debouncedCellSize, cellSize, setCellSize]);
+
   const handleGeoTiffExport = async () => {
     if (!sourceFile || !fence || loading.active) {
       return;
@@ -158,72 +173,79 @@ export function LeftPanel() {
             </div>
           )}
         </div>
-        <dl className="metric-list">
-          <div className="metric-item">
-            <dt className="metric-label">文件名</dt>
-            <dd>{metadata?.fileName ?? sourceLabel}</dd>
-          </div>
-          <div className="metric-item">
-            <dt className="metric-label">地理参考</dt>
-            <dd>
-              {status === 'ready'
-                ? '已识别'
-                : status === 'error'
-                  ? '失败'
-                  : sourceLabel === '未选择文件'
-                    ? '等待上传'
-                    : '读取中'}
-            </dd>
-          </div>
-          <div className="metric-item">
-            <dt className="metric-label">尺寸</dt>
-            <dd>{metadata ? `${metadata.width} x ${metadata.height}` : '--'}</dd>
-          </div>
-          <div className="metric-item">
-            <dt className="metric-label">CRS</dt>
-            <dd>{metadata?.crsCode ?? '--'}</dd>
-          </div>
-          <div className="metric-item">
-            <dt className="metric-label">像元大小</dt>
-            <dd>{metadata ? formatCellSize(metadata.cellSize.x, metadata.cellSize.unit) : '--'}</dd>
-          </div>
-          <div className="metric-item">
-            <dt className="metric-label">原始范围</dt>
-            <dd>{formatSourceExtent(metadata)}</dd>
-          </div>
-          <div className="metric-item">
-            <dt className="metric-label">实际尺寸</dt>
-            <dd>{formatRasterPhysicalSize(metadata)}</dd>
-          </div>
-          <div className="metric-item">
-            <dt className="metric-label">网格比例</dt>
-            <dd>{formatGridRatio(cellSize, metadata)}</dd>
-          </div>
-          <div className="metric-item">
-            <dt className="metric-label">网格单位</dt>
-            <dd>米</dd>
-          </div>
-          <div className="metric-item">
-            <dt className="metric-label">读取状态</dt>
-            <dd>{loadingPhase}</dd>
-          </div>
-          <div className="metric-item">
-            <dt className="metric-label">读取进度</dt>
-            <dd>{loadingProgress === null ? '--' : `${loadingProgress}%`}</dd>
-          </div>
-          <div className="metric-item">
-            <dt className="metric-label">有效区域</dt>
-            <dd>
-              {validityStatus === 'ready'
-                ? '已就绪'
-                : validityStatus === 'loading'
-                  ? '后台处理中'
-                  : validityStatus === 'error'
-                    ? '提取失败'
-                    : '--'}
-            </dd>
-          </div>
-        </dl>
+        <div className="metric-section">
+          <h4 className="metric-section__title">基本属性</h4>
+          <dl className="metric-list metric-list--two-col">
+            <div className="metric-item">
+              <dt className="metric-label">文件名</dt>
+              <dd className="metric-value" title={metadata?.fileName ?? sourceLabel}>{metadata?.fileName ?? sourceLabel}</dd>
+            </div>
+            <div className="metric-item">
+              <dt className="metric-label">尺寸</dt>
+              <dd className="metric-value">{metadata ? `${metadata.width} x ${metadata.height}` : '--'}</dd>
+            </div>
+          </dl>
+        </div>
+
+        <div className="metric-section">
+          <h4 className="metric-section__title">空间参考</h4>
+          <dl className="metric-list metric-list--two-col">
+            <div className="metric-item">
+              <dt className="metric-label">地理参考</dt>
+              <dd className="metric-value">
+                {status === 'ready'
+                  ? '已识别'
+                  : status === 'error'
+                    ? '失败'
+                    : sourceLabel === '未选择文件'
+                      ? '等待上传'
+                      : '读取中'}
+              </dd>
+            </div>
+            <div className="metric-item">
+              <dt className="metric-label">CRS</dt>
+              <dd className="metric-value">{metadata?.crsCode ?? '--'}</dd>
+            </div>
+            <div className="metric-item">
+              <dt className="metric-label">像元大小</dt>
+              <dd className="metric-value">{metadata ? formatCellSize(metadata.cellSize.x, metadata.cellSize.unit) : '--'}</dd>
+            </div>
+            <div className="metric-item metric-item--full">
+              <dt className="metric-label">原始范围</dt>
+              <dd className="metric-value">{formatSourceExtent(metadata)}</dd>
+            </div>
+            <div className="metric-item">
+              <dt className="metric-label">实际尺寸</dt>
+              <dd className="metric-value">{formatRasterPhysicalSize(metadata)}</dd>
+            </div>
+          </dl>
+        </div>
+
+        <div className="metric-section">
+          <h4 className="metric-section__title">处理状态</h4>
+          <dl className="metric-list metric-list--two-col">
+            <div className="metric-item">
+              <dt className="metric-label">读取状态</dt>
+              <dd className="metric-value">{loadingPhase}</dd>
+            </div>
+            <div className="metric-item">
+              <dt className="metric-label">读取进度</dt>
+              <dd className="metric-value">{loadingProgress === null ? '--' : `${loadingProgress}%`}</dd>
+            </div>
+            <div className="metric-item">
+              <dt className="metric-label">有效区域</dt>
+              <dd className="metric-value">
+                {validityStatus === 'ready'
+                  ? '已就绪'
+                  : validityStatus === 'loading'
+                    ? '后台处理中'
+                    : validityStatus === 'error'
+                      ? '提取失败'
+                      : '--'}
+              </dd>
+            </div>
+          </dl>
+        </div>
       </div>
 
       <h3>围栏工具</h3>
@@ -263,15 +285,25 @@ export function LeftPanel() {
           type="number"
           min="0.1"
           step="0.1"
-          value={cellSize}
-          onChange={(event) => {
-            const nextValue = Number(event.target.value);
-            if (Number.isFinite(nextValue) && nextValue > 0) {
-              setCellSize(nextValue);
-            }
-          }}
+          value={localCellSize}
+          onChange={(event) => setLocalCellSize(event.target.value)}
         />
-        <p className="toolbar-hint">预计网格：{gridSummary?.totalCells ?? '--'}</p>
+        <div className="metric-section metric-section--compact" style={{ marginTop: 12 }}>
+          <dl className="metric-list metric-list--two-col">
+            <div className="metric-item">
+              <dt className="metric-label">网格比例</dt>
+              <dd className="metric-value">{formatGridRatio(cellSize, metadata)}</dd>
+            </div>
+            <div className="metric-item">
+              <dt className="metric-label">网格单位</dt>
+              <dd className="metric-value">米</dd>
+            </div>
+            <div className="metric-item">
+              <dt className="metric-label">预计网格</dt>
+              <dd className="metric-value">{gridSummary?.totalCells ?? '--'}</dd>
+            </div>
+          </dl>
+        </div>
         <div className="toolbar-row toolbar-row--spaced">
           <button
             type="button"
