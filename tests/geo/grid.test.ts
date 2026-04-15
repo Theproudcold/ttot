@@ -84,6 +84,8 @@ describe('buildGridPreview', () => {
           validPixelCount: 18,
           sumValue: 11.16,
           meanValue: 0.62,
+          minValue: 0.2,
+          maxValue: 0.88,
           outputValue: 0.62,
         },
       },

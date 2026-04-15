@@ -3,12 +3,19 @@ import { getFenceSummary, isPointInFence } from '@/shared/geo/fence';
 import type { FencePosition, FenceRings } from '@/shared/types/fence';
 import type { GridAggregationResult, GridCell, GridPreview } from '@/shared/types/grid';
 
+/**
+ * 构建网格预览的可选参数。
+ * 支持向后兼容的旧版多参数调用方式。
+ */
 type GridPreviewOptions = {
   metricTransform?: MetricTransform;
   aggregation?: GridAggregationResult;
   rotationDeg?: number;
 };
 
+/**
+ * 将点绕指定中心旋转指定弧度。
+ */
 function rotatePoint(
   point: [number, number],
   center: [number, number],
@@ -28,6 +35,9 @@ function rotatePoint(
   return [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos];
 }
 
+/**
+ * 构建一个轴对齐的矩形多边形环（闭合）。
+ */
 function buildCellPolygon(minX: number, minY: number, maxX: number, maxY: number): FenceRings {
   return [
     [
@@ -40,6 +50,10 @@ function buildCellPolygon(minX: number, minY: number, maxX: number, maxY: number
   ];
 }
 
+/**
+ * 基于围栏多边形和网格参数生成网格预览。
+ * 支持度量变换、旋转角度以及可选的聚合结果注入。
+ */
 export function buildGridPreview(
   rings: FenceRings,
   cellSize: number,
@@ -142,6 +156,9 @@ export function buildGridPreview(
   };
 }
 
+/**
+ * 利用度量变换将轴对齐的度量矩形转换为地理坐标多边形。
+ */
 function buildCellPolygonFromMetric(
   metricTransform: MetricTransform,
   minX: number,
@@ -157,6 +174,10 @@ function buildCellPolygonFromMetric(
   return [[bottomLeft, bottomRight, topRight, topLeft, bottomLeft]];
 }
 
+/**
+ * 先旋转度量矩形，再通过度量变换得到地理坐标多边形。
+ * 用于生成带旋转角度的网格单元。
+ */
 function buildRotatedCellPolygonFromMetric(
   metricTransform: MetricTransform,
   minX: number,
@@ -182,6 +203,9 @@ function buildRotatedCellPolygonFromMetric(
   ];
 }
 
+/**
+ * 计算围栏在指定旋转后的度量空间中的轴对齐边界框。
+ */
 function getRotatedMetricBounds(
   rings: FenceRings,
   metricTransform: MetricTransform,
@@ -207,6 +231,9 @@ function getRotatedMetricBounds(
   return [minX, minY, maxX, maxY];
 }
 
+/**
+ * 计算围栏在度量空间中的轴对齐边界框。
+ */
 function getMetricBounds(rings: FenceRings, metricTransform: MetricTransform): [number, number, number, number] {
   let minX = Number.POSITIVE_INFINITY;
   let minY = Number.POSITIVE_INFINITY;
@@ -226,6 +253,9 @@ function getMetricBounds(rings: FenceRings, metricTransform: MetricTransform): [
   return [minX, minY, maxX, maxY];
 }
 
+/**
+ * 解析向后兼容的多参数输入，统一返回 GridPreviewOptions。
+ */
 function resolveOptions(
   thirdArg?: GridPreviewOptions | GridAggregationResult | MetricTransform,
   fourthArg?: GridAggregationResult | MetricTransform,
@@ -240,6 +270,9 @@ function resolveOptions(
   };
 }
 
+/**
+ * 从多参数输入中提取 MetricTransform，若未提供则生成恒等变换。
+ */
 function resolveMetricTransform(
   rings: FenceRings,
   thirdArg?: GridPreviewOptions | GridAggregationResult | MetricTransform,
@@ -262,6 +295,10 @@ function resolveMetricTransform(
   return createIdentityMetricTransform(rings);
 }
 
+/**
+ * 创建恒等度量变换（地理坐标与度量坐标 1:1 映射）。
+ * 默认以围栏边界框作为度量范围。
+ */
 function createIdentityMetricTransform(rings: FenceRings): MetricTransform {
   const { bbox } = getFenceSummary(rings);
   const [minX, minY, maxX, maxY] = bbox;
@@ -281,10 +318,16 @@ function createIdentityMetricTransform(rings: FenceRings): MetricTransform {
   };
 }
 
+/**
+ * 类型守卫：判断值是否为网格聚合结果。
+ */
 function isGridAggregationResult(value: unknown): value is GridAggregationResult {
   return Boolean(value && typeof value === 'object' && 'cellsById' in value);
 }
 
+/**
+ * 类型守卫：判断值是否为度量变换对象。
+ */
 function isMetricTransform(value: unknown): value is MetricTransform {
   return Boolean(value && typeof value === 'object' && 'toMetric' in value && 'fromMetric' in value);
 }

@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createMetricTransform } from '@/shared/geo/crs';
 import {
   aggregateGridCellsFromRasterWindow,
+  aggregateGridCellsFromRasterWindowAsync,
   applyGridAggregationToBands,
 } from '@/shared/geo/gridAggregation';
 import type { FenceRings } from '@/shared/types/fence';
@@ -177,6 +178,181 @@ describe('gridAggregation', () => {
     });
   });
 
+  it('uses max aggregation mode to set outputValue to the maximum valid pixel', () => {
+    const result = aggregateGridCellsFromRasterWindow({
+      window: [0, 0, 4, 2],
+      width: 4,
+      height: 2,
+      origin: [0, 2, 0],
+      resolution: [1, -1, 0],
+      fenceRings: [
+        [
+          [0, 0],
+          [4, 0],
+          [4, 2],
+          [0, 2],
+          [0, 0],
+        ],
+      ],
+      gridCellWidth: 2,
+      gridCellHeight: 2,
+      band: new Float32Array([1, 3, 5, 7, 9, 11, 13, 15]),
+      noDataValue: null,
+      aggregationMode: 'max',
+    });
+
+    expect(result.cellsById['r0-c0']).toMatchObject({
+      pixelCount: 4,
+      validPixelCount: 4,
+      meanValue: 6,
+      minValue: 1,
+      maxValue: 11,
+      outputValue: 11,
+    });
+    expect(result.cellsById['r0-c1']).toMatchObject({
+      pixelCount: 4,
+      validPixelCount: 4,
+      meanValue: 10,
+      minValue: 5,
+      maxValue: 15,
+      outputValue: 15,
+    });
+  });
+
+  it('uses min aggregation mode to set outputValue to the minimum valid pixel', () => {
+    const result = aggregateGridCellsFromRasterWindow({
+      window: [0, 0, 4, 2],
+      width: 4,
+      height: 2,
+      origin: [0, 2, 0],
+      resolution: [1, -1, 0],
+      fenceRings: [
+        [
+          [0, 0],
+          [4, 0],
+          [4, 2],
+          [0, 2],
+          [0, 0],
+        ],
+      ],
+      gridCellWidth: 2,
+      gridCellHeight: 2,
+      band: new Float32Array([1, 3, 5, 7, 9, 11, 13, 15]),
+      noDataValue: null,
+      aggregationMode: 'min',
+    });
+
+    expect(result.cellsById['r0-c0']).toMatchObject({
+      pixelCount: 4,
+      validPixelCount: 4,
+      meanValue: 6,
+      minValue: 1,
+      maxValue: 11,
+      outputValue: 1,
+    });
+    expect(result.cellsById['r0-c1']).toMatchObject({
+      pixelCount: 4,
+      validPixelCount: 4,
+      meanValue: 10,
+      minValue: 5,
+      maxValue: 15,
+      outputValue: 5,
+    });
+  });
+
+  it('skips nodata pixels when computing min and max values', () => {
+    const result = aggregateGridCellsFromRasterWindow({
+      window: [0, 0, 4, 2],
+      width: 4,
+      height: 2,
+      origin: [0, 2, 0],
+      resolution: [1, -1, 0],
+      fenceRings: [
+        [
+          [0, 0],
+          [4, 0],
+          [4, 2],
+          [0, 2],
+          [0, 0],
+        ],
+      ],
+      gridCellWidth: 2,
+      gridCellHeight: 2,
+      band: new Float32Array([1, -9999, 5, 7, 9, Number.NaN, 13, 15]),
+      noDataValue: -9999,
+      aggregationMode: 'max',
+    });
+
+    expect(result.cellsById['r0-c0']).toMatchObject({
+      validPixelCount: 2,
+      meanValue: (1 + 9) / 2,
+      minValue: 1,
+      maxValue: 9,
+      outputValue: 9,
+    });
+    expect(result.cellsById['r0-c1']).toMatchObject({
+      validPixelCount: 4,
+      meanValue: (5 + 7 + 13 + 15) / 4,
+      minValue: 5,
+      maxValue: 15,
+      outputValue: 15,
+    });
+  });
+
+  it('matches synchronous aggregation while yielding control between row chunks', async () => {
+    const yieldControl = vi.fn(async () => undefined);
+    const syncResult = aggregateGridCellsFromRasterWindow({
+      window: [0, 0, 4, 3],
+      width: 4,
+      height: 3,
+      origin: [0, 3, 0],
+      resolution: [1, -1, 0],
+      fenceRings: [
+        [
+          [0, 0],
+          [4, 0],
+          [4, 3],
+          [0, 3],
+          [0, 0],
+        ],
+      ],
+      gridCellWidth: 2,
+      gridCellHeight: 1,
+      band: new Float32Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
+      noDataValue: null,
+    });
+
+    const asyncResult = await aggregateGridCellsFromRasterWindowAsync(
+      {
+        window: [0, 0, 4, 3],
+        width: 4,
+        height: 3,
+        origin: [0, 3, 0],
+        resolution: [1, -1, 0],
+        fenceRings: [
+          [
+            [0, 0],
+            [4, 0],
+            [4, 3],
+            [0, 3],
+            [0, 0],
+          ],
+        ],
+        gridCellWidth: 2,
+        gridCellHeight: 1,
+        band: new Float32Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
+        noDataValue: null,
+      },
+      {
+        rowsPerChunk: 1,
+        yieldControl,
+      },
+    );
+
+    expect(asyncResult).toEqual(syncResult);
+    expect(yieldControl).toHaveBeenCalledTimes(2);
+  });
+
   it('does not create buckets for non-hit cells inside the fence bounding box', () => {
     const result = aggregateGridCellsFromRasterWindow({
       window: [0, 0, 3, 3],
@@ -223,6 +399,8 @@ describe('gridAggregation', () => {
           validPixelCount: 1,
           sumValue: 10,
           meanValue: 10,
+          minValue: 10,
+          maxValue: 10,
           outputValue: 10,
         },
       },
@@ -259,6 +437,8 @@ describe('gridAggregation', () => {
             validPixelCount: 0,
             sumValue: 0,
             meanValue: null,
+            minValue: null,
+            maxValue: null,
             outputValue: null,
           },
         },
@@ -290,6 +470,8 @@ describe('gridAggregation', () => {
             validPixelCount: 1,
             sumValue: 10,
             meanValue: 10,
+            minValue: 10,
+            maxValue: 10,
             outputValue: 10,
           },
         },
@@ -323,6 +505,8 @@ describe('gridAggregation', () => {
             validPixelCount: 4,
             sumValue: preciseValue * 4,
             meanValue: preciseValue,
+            minValue: preciseValue,
+            maxValue: preciseValue,
             outputValue: preciseValue,
           },
         },
@@ -360,6 +544,8 @@ describe('gridAggregation', () => {
             validPixelCount: 4,
             sumValue: 6,
             meanValue: 1.5,
+            minValue: 1,
+            maxValue: 2,
             outputValue: 1.5,
           },
         },
