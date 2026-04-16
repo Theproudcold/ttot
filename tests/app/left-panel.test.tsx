@@ -197,4 +197,52 @@ describe('LeftPanel', () => {
       within(screen.getByText('读取进度').closest('.metric-item') as HTMLElement).getByText('42%'),
     ).toBeInTheDocument();
   });
+
+  it('clamps cell size to the minimum allowed by raster resolution', () => {
+    vi.useFakeTimers();
+
+    act(() => {
+      useRasterStore.getState().setMetadata(
+        createRasterMetadata({
+          fileName: 'high-res.tif',
+          width: 1000,
+          height: 1000,
+          boundingBox: [0, 0, 100, 100],
+          cellSize: { x: 0.5, y: 0.5, unit: 'm' },
+          crsCode: 'EPSG:4549',
+        }),
+      );
+    });
+
+    render(<LeftPanel />);
+
+    const input = screen.getByLabelText('网格尺寸（米）') as HTMLInputElement;
+    expect(input.min).toBe('0.5');
+    expect(screen.getByText('最小网格尺寸受影像分辨率限制为 0.5000 米')).toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: '0.1' } });
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(useGridStore.getState().cellSize).toBe(0.5);
+    expect(input).toHaveDisplayValue('0.5');
+  });
+
+  it('falls back to absolute minimum when no metadata is available', () => {
+    vi.useFakeTimers();
+
+    render(<LeftPanel />);
+
+    const input = screen.getByLabelText('网格尺寸（米）') as HTMLInputElement;
+    expect(input.min).toBe('0.01');
+
+    fireEvent.change(input, { target: { value: '0.001' } });
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(useGridStore.getState().cellSize).toBe(0.01);
+    expect(input).toHaveDisplayValue('0.01');
+  });
 });

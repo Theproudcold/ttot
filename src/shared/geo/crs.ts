@@ -18,6 +18,32 @@ export function getDegreeToMeterScale(latitude: number): { scaleX: number; scale
   return { scaleX, scaleY };
 }
 
+import type { RasterMetadata } from '@/shared/types/raster';
+
+const ABSOLUTE_MIN_CELL_SIZE = 0.01;
+
+/**
+ * 根据影像元数据计算网格尺寸的最小允许值。
+ * 最小值不得低于影像像元的物理尺寸（米），且绝对不低于 0.01m。
+ */
+export function getMinCellSizeFromMetadata(
+  metadata: RasterMetadata | null | undefined,
+): number {
+  if (!metadata?.cellSize.x) {
+    return ABSOLUTE_MIN_CELL_SIZE;
+  }
+
+  const { x, unit } = metadata.cellSize;
+
+  if (unit === 'degree') {
+    const latitude = (metadata.boundingBox[1] + metadata.boundingBox[3]) / 2;
+    const { scaleX } = getDegreeToMeterScale(latitude);
+    return Math.max(x * scaleX, ABSOLUTE_MIN_CELL_SIZE);
+  }
+
+  return Math.max(x, ABSOLUTE_MIN_CELL_SIZE);
+}
+
 export type GridEstimate = {
   rows: number;
   cols: number;

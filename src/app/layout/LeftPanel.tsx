@@ -6,7 +6,7 @@ import { useFenceStore } from '@/features/fence/fenceStore';
 import { useGridStore } from '@/features/grid/gridStore';
 import { useMapUiStore } from '@/features/map/mapUiStore';
 import { useRasterStore } from '@/features/map/rasterStore';
-import { getDegreeToMeterScale } from '@/shared/geo/crs';
+import { getDegreeToMeterScale, getMinCellSizeFromMetadata } from '@/shared/geo/crs';
 import type { RasterMetadata } from '@/shared/types/raster';
 
 function formatCellSize(metadata: RasterMetadata | null | undefined): string {
@@ -93,13 +93,25 @@ export function LeftPanel() {
   const [localRotation, setLocalRotation] = useState(String(rotation));
   const debouncedRotation = useDebounce(localRotation, 300);
 
+  const minCellSize = getMinCellSizeFromMetadata(metadata);
+
   const commitCellSize = useDebouncedCallback((nextRawValue: string) => {
     if (nextRawValue !== latestCellSizeInputRef.current) {
       return;
     }
 
-    const nextValue = Number(nextRawValue);
-    if (Number.isFinite(nextValue) && nextValue > 0 && nextValue !== cellSizeRef.current) {
+    let nextValue = Number(nextRawValue);
+    if (!Number.isFinite(nextValue) || nextValue <= 0) {
+      return;
+    }
+
+    if (nextValue < minCellSize) {
+      nextValue = minCellSize;
+      setLocalCellSize(String(nextValue));
+      latestCellSizeInputRef.current = String(nextValue);
+    }
+
+    if (nextValue !== cellSizeRef.current) {
       setCellSize(nextValue);
     }
   }, 300);
@@ -284,7 +296,7 @@ export function LeftPanel() {
           id="grid-cell-size"
           className="field-input"
           type="number"
-          min="0.1"
+          min={minCellSize}
           step="0.1"
           value={localCellSize}
           onChange={(event) => {
@@ -299,6 +311,11 @@ export function LeftPanel() {
             commitCellSize(nextRawValue);
           }}
         />
+        {metadata && (
+          <p style={{ margin: '4px 0 0', fontSize: 12, color: '#6b7280' }}>
+            {`最小网格尺寸受影像分辨率限制为 ${minCellSize.toFixed(4)} 米`}
+          </p>
+        )}
         <label className="field-label" htmlFor="grid-aggregation-mode" style={{ marginTop: 12, display: 'block' }}>
           聚合方式
         </label>
