@@ -124,7 +124,7 @@ export function buildRasterMetadata(raw: RawRasterMetadata): RasterMetadata {
   };
 }
 
-function normalizeNoDataValue(value: unknown): number | null {
+export function normalizeNoDataValue(value: unknown): number | null {
   if (typeof value === 'number') {
     return Number.isFinite(value) ? value : null;
   }
@@ -164,7 +164,7 @@ export function buildValidityMask(
 /**
  * 从 GeoTIFF 图像对象中读取并构建降采样后的有效区域掩膜。
  */
-async function buildRasterValidityMask(image: RasterImageHandle) {
+export async function buildRasterValidityMask(image: RasterImageHandle) {
   const imageWidth = image.getWidth();
   const imageHeight = image.getHeight();
   const longestEdge = Math.max(imageWidth, imageHeight);

@@ -158,3 +158,89 @@ export type LoadedRasterSource = {
   metadata: RasterMetadata;
   validityMask: RasterValidityMask | null;
 };
+
+export type RasterWorkerRequest =
+  | {
+      id: string;
+      type: 'recolor-preview';
+      payload: {
+        width: number;
+        height: number;
+        sampleData: Float32Array;
+        noDataValue: number | null;
+        layer: RasterClassificationLayer;
+      };
+    }
+  | {
+      id: string;
+      type: 'aggregate-grid';
+      payload: {
+        fenceRings: import('@/shared/types/fence').FenceRings;
+        window: [number, number, number, number];
+        width: number;
+        height: number;
+        origin: RasterOrigin;
+        resolution: RasterResolution;
+        band: Float32Array;
+        noDataValue: number | null;
+        metricTransform: MetricTransform | null;
+        gridCellWidth: number;
+        gridCellHeight: number;
+        aggregationMode: import('@/shared/types/grid').GridAggregationMode;
+        rotationDeg: number;
+      };
+    }
+  | {
+      id: string;
+      type: 'load-preview';
+      payload: {
+        source: File | string;
+        maxEdge: number;
+      };
+    }
+  | {
+      id: string;
+      type: 'load-validity-mask';
+      payload: {
+        source: File | string;
+      };
+    };
+
+export type RasterWorkerResponse =
+  | {
+      id: string;
+      type: 'recolor-preview';
+      result: {
+        rgbaBuffer: ArrayBuffer;
+        width: number;
+        height: number;
+      };
+    }
+  | {
+      id: string;
+      type: 'aggregate-grid';
+      result: import('@/shared/types/grid').GridAggregationResult;
+    }
+  | {
+      id: string;
+      type: 'load-preview';
+      result: {
+        rgbaBuffer: ArrayBuffer;
+        width: number;
+        height: number;
+        sampleBandCount: number;
+        sampleData: Float32Array;
+        sampleRanges: Array<RasterValueRange | null>;
+        noDataValue: number | null;
+      };
+    }
+  | {
+      id: string;
+      type: 'load-validity-mask';
+      result: RasterValidityMask;
+    }
+  | {
+      id: string;
+      type: 'error';
+      error: string;
+    };

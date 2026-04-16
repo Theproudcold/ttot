@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 import {
   debugLog,
@@ -7,12 +7,51 @@ import {
   summarizePreviewPayload,
 } from '@/features/map/debugLogger';
 import { loadRasterMetadata, loadRasterPreview, loadRasterValidityMask } from '@/shared/geo/raster';
+import { createPreviewDataUrl } from '@/shared/geo/rasterPreview';
+import type { RasterPreview, RasterWorkerRequest, RasterWorkerResponse } from '@/shared/types/raster';
 
 import { useRasterStore } from './rasterStore';
 
 type RasterLoaderOptions = {
   enabled?: boolean;
 };
+
+const MAX_PREVIEW_EDGE = 1024;
+
+function postWorkerRequest<T extends Exclude<RasterWorkerResponse['type'], 'error'>>
+(
+  worker: Worker,
+  request: RasterWorkerRequest,
+): Promise<Extract<RasterWorkerResponse, { type: T }>> {
+  return new Promise((resolve, reject) => {
+    const handleMessage = (event: MessageEvent<RasterWorkerResponse>) => {
+      const response = event.data;
+      if (response.id !== request.id) return;
+      clearTimeout(timeout);
+      worker.removeEventListener('message', handleMessage);
+      worker.removeEventListener('error', handleError);
+      if (response.type === 'error') {
+        reject(new Error(response.error));
+      } else {
+        resolve(response as Extract<RasterWorkerResponse, { type: T }>);
+      }
+    };
+    const handleError = (event: ErrorEvent) => {
+      clearTimeout(timeout);
+      worker.removeEventListener('message', handleMessage);
+      worker.removeEventListener('error', handleError);
+      reject(new Error(`Worker error: ${event.message}`));
+    };
+    worker.addEventListener('message', handleMessage);
+    worker.addEventListener('error', handleError);
+    const timeout = setTimeout(() => {
+      worker.removeEventListener('message', handleMessage);
+      worker.removeEventListener('error', handleError);
+      reject(new Error('Worker request timeout'));
+    }, 60000);
+    worker.postMessage(request);
+  });
+}
 
 export function useRasterLoader(options?: RasterLoaderOptions) {
   const enabled = options?.enabled ?? !import.meta.env.VITEST;
@@ -30,6 +69,28 @@ export function useRasterLoader(options?: RasterLoaderOptions) {
   const setStatus = useRasterStore((state) => state.setStatus);
   const setError = useRasterStore((state) => state.setError);
   const setLoadingProgress = useRasterStore((state) => state.setLoadingProgress);
+
+  const workerRef = useRef<Worker | null>(null);
+  const previewJobIdRef = useRef(0);
+  const maskJobIdRef = useRef(0);
+
+  useEffect(() => {
+    if (import.meta.env.VITEST) {
+      return;
+    }
+    const worker = new Worker(
+      new URL('../../shared/workers/rasterCompute.worker.ts', import.meta.url),
+      { type: 'module' },
+    );
+    worker.onerror = (error) => {
+      debugLog('loader', 'Worker 全局错误', error);
+    };
+    workerRef.current = worker;
+    return () => {
+      worker.terminate();
+      workerRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     if (!enabled || !sourceFile || metadata) {
@@ -92,24 +153,71 @@ export function useRasterLoader(options?: RasterLoaderOptions) {
       metadataReady: Boolean(metadata),
     });
 
-    loadRasterPreview(sourceFile, (progress, phase) => {
-      if (!disposed) {
-        setLoadingProgress(phase, progress);
-        debugLog('loader', '预览阶段进度', {
-          phase,
-          progress,
-          sourceId,
-        });
+    const worker = workerRef.current;
+
+    const loadPreviewViaWorker = async (): Promise<RasterPreview> => {
+      if (!worker) {
+        throw new Error('Worker not available');
       }
-    })
-      .then((nextPreview) => {
+      previewJobIdRef.current += 1;
+      const request: RasterWorkerRequest = {
+        id: `preview-${previewJobIdRef.current}`,
+        type: 'load-preview',
+        payload: {
+          source: sourceFile,
+          maxEdge: MAX_PREVIEW_EDGE,
+        },
+      };
+      const response = await postWorkerRequest(worker, request);
+      if (response.type !== 'load-preview') {
+        throw new Error('Unexpected worker response type');
+      }
+      if (!disposed) {
+        setLoadingProgress('正在合成预览图', 90);
+      }
+      const url = createPreviewDataUrl(
+        response.result.width,
+        response.result.height,
+        new Uint8ClampedArray(response.result.rgbaBuffer),
+      );
+      return {
+        url,
+        width: response.result.width,
+        height: response.result.height,
+        sampleBandCount: response.result.sampleBandCount,
+        sampleData: response.result.sampleData,
+        sampleRanges: response.result.sampleRanges,
+        noDataValue: response.result.noDataValue,
+      };
+    };
+
+    const loadPreview = async () => {
+      try {
+        let nextPreview: RasterPreview;
+        if (worker) {
+          try {
+            nextPreview = await loadPreviewViaWorker();
+          } catch (workerError) {
+            debugLog('loader', 'Worker 预览生成失败，回退主线程', workerError);
+            nextPreview = await loadRasterPreview(sourceFile, (progress, phase) => {
+              if (!disposed) {
+                setLoadingProgress(phase, progress);
+              }
+            });
+          }
+        } else {
+          nextPreview = await loadRasterPreview(sourceFile, (progress, phase) => {
+            if (!disposed) {
+              setLoadingProgress(phase, progress);
+            }
+          });
+        }
         if (!disposed) {
           setPreview(nextPreview);
           setLoadingProgress('预览已就绪', 100);
           debugLog('loader', '预览生成完成', summarizePreviewPayload(nextPreview));
         }
-      })
-      .catch((error) => {
+      } catch (error) {
         if (!disposed) {
           const errorDetail = error instanceof Error
             ? { message: error.message, stack: error.stack }
@@ -118,10 +226,12 @@ export function useRasterLoader(options?: RasterLoaderOptions) {
           console.error('[GeoTIFF] 预览生成失败:', error);
           setPreviewStatus('error');
         }
-      })
-      .finally(() => {
+      } finally {
         markPerformanceEnd('raster:preview');
-      });
+      }
+    };
+
+    loadPreview();
 
     return () => {
       disposed = true;
@@ -150,8 +260,40 @@ export function useRasterLoader(options?: RasterLoaderOptions) {
       sourceId,
     });
 
-    loadRasterValidityMask(sourceFile, () => undefined)
-      .then((nextValidityMask) => {
+    const worker = workerRef.current;
+
+    const loadMaskViaWorker = async () => {
+      if (!worker) {
+        throw new Error('Worker not available');
+      }
+      maskJobIdRef.current += 1;
+      const request: RasterWorkerRequest = {
+        id: `mask-${maskJobIdRef.current}`,
+        type: 'load-validity-mask',
+        payload: {
+          source: sourceFile,
+        },
+      };
+      const response = await postWorkerRequest(worker, request);
+      if (response.type !== 'load-validity-mask') {
+        throw new Error('Unexpected worker response type');
+      }
+      return response.result;
+    };
+
+    const loadMask = async () => {
+      try {
+        let nextValidityMask: Awaited<ReturnType<typeof loadRasterValidityMask>>;
+        if (worker) {
+          try {
+            nextValidityMask = await loadMaskViaWorker();
+          } catch (workerError) {
+            debugLog('loader', 'Worker 有效区域提取失败，回退主线程', workerError);
+            nextValidityMask = await loadRasterValidityMask(sourceFile, () => undefined);
+          }
+        } else {
+          nextValidityMask = await loadRasterValidityMask(sourceFile, () => undefined);
+        }
         if (!disposed) {
           setValidityMask(nextValidityMask);
           setValidityStatus('ready');
@@ -161,16 +303,17 @@ export function useRasterLoader(options?: RasterLoaderOptions) {
             boundingBox: nextValidityMask.boundingBox,
           });
         }
-      })
-      .catch((error) => {
+      } catch (error) {
         if (!disposed) {
           debugLog('loader', '有效区域提取失败', error);
           setValidityStatus('error');
         }
-      })
-      .finally(() => {
+      } finally {
         markPerformanceEnd('raster:validity-mask');
-      });
+      }
+    };
+
+    loadMask();
 
     return () => {
       disposed = true;

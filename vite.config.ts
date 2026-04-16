@@ -8,6 +8,9 @@ export default defineConfig({
       '@': '/src',
     },
   },
+  worker: {
+    format: 'es',
+  },
   test: {
     environment: 'jsdom',
     globals: true,

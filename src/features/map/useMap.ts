@@ -33,7 +33,7 @@ import {
   createPreviewDataUrl,
   findRasterClassificationMatch,
 } from '@/shared/geo/raster';
-import type { RasterMetadata } from '@/shared/types/raster';
+import type { RasterMetadata, RasterWorkerRequest, RasterWorkerResponse } from '@/shared/types/raster';
 import type { RasterClassificationLayer } from '@/shared/types/raster';
 import type { FenceRings } from '@/shared/types/fence';
 import type { GridCell, GridRenderSettings } from '@/shared/types/grid';
@@ -99,22 +99,64 @@ export function useMap(metadata: RasterMetadata | null) {
   const visibleClassificationLayerRef = useRef(
     getVisibleClassificationLayer(classificationLayers, visibleClassificationLayerId),
   );
+  const gridStyleCacheRef = useRef<globalThis.Map<string, Style>>(new globalThis.Map());
+  const workerRef = useRef<Worker | null>(null);
+  const previewJobIdRef = useRef(0);
+  const aggregationJobIdRef = useRef(0);
 
   useEffect(() => {
-    metadataRef.current = metadata;
-  }, [metadata]);
+    if (import.meta.env.VITEST) {
+      return;
+    }
+
+    const worker = new Worker(
+      new URL('../../shared/workers/rasterCompute.worker.ts', import.meta.url),
+      { type: 'module' },
+    );
+    worker.onerror = (error) => {
+      debugLog('map', 'Worker 全局错误', error);
+    };
+    workerRef.current = worker;
+
+    return () => {
+      worker.terminate();
+      workerRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
-    previewRef.current = preview;
-  }, [preview]);
+    const unsubRaster = useRasterStore.subscribe((state) => {
+      metadataRef.current = state.metadata;
+      previewRef.current = state.preview;
+      validityMaskRef.current = state.validityMask;
+    });
+    const unsubFence = useFenceStore.subscribe((state) => {
+      fenceRef.current = state.fence;
+    });
+    const unsubMapUi = useMapUiStore.subscribe((state) => {
+      visibleClassificationLayerRef.current = getVisibleClassificationLayer(
+        state.classificationLayers,
+        state.visibleClassificationLayerId,
+      );
+      gridRenderSettingsRef.current = state.gridRenderSettings;
+    });
 
-  useEffect(() => {
-    validityMaskRef.current = validityMask;
-  }, [validityMask]);
+    metadataRef.current = useRasterStore.getState().metadata;
+    previewRef.current = useRasterStore.getState().preview;
+    validityMaskRef.current = useRasterStore.getState().validityMask;
+    fenceRef.current = useFenceStore.getState().fence;
+    visibleClassificationLayerRef.current = getVisibleClassificationLayer(
+      useMapUiStore.getState().classificationLayers,
+      useMapUiStore.getState().visibleClassificationLayerId,
+    );
+    gridRenderSettingsRef.current = useMapUiStore.getState().gridRenderSettings;
 
-  useEffect(() => {
-    fenceRef.current = fence;
-  }, [fence]);
+    return () => {
+      unsubRaster();
+      unsubFence();
+      unsubMapUi();
+    };
+  }, []);
 
   useEffect(() => {
     if (!fence || gridCells.length === 0) {
@@ -129,17 +171,6 @@ export function useMap(metadata: RasterMetadata | null) {
       metricTransform: metadata?.metricTransform,
     });
   }, [cellSize, fence, gridCells, metadata]);
-
-  useEffect(() => {
-    gridRenderSettingsRef.current = gridRenderSettings;
-  }, [gridRenderSettings]);
-
-  useEffect(() => {
-    visibleClassificationLayerRef.current = getVisibleClassificationLayer(
-      classificationLayers,
-      visibleClassificationLayerId,
-    );
-  }, [classificationLayers, visibleClassificationLayerId]);
 
   function scheduleMapResize(map: Map, callback?: () => void) {
     scheduleMapResizeFrame(map, callback);
@@ -238,14 +269,20 @@ export function useMap(metadata: RasterMetadata | null) {
       zIndex: 2,
       style: (feature) => {
         const cell = feature.get('gridCell') as GridCell | undefined;
-        const colors = cell
-          ? getGridCellStyleColors(cell, visibleClassificationLayerRef.current, gridRenderSettingsRef.current)
-          : {
-              strokeColor: 'rgba(0, 0, 0, 0)',
-              fillColor: 'rgba(0, 0, 0, 0)',
-            };
+        if (!cell) {
+          return new Style({
+            stroke: new Stroke({ color: 'rgba(0, 0, 0, 0)', width: 1 }),
+            fill: new Fill({ color: 'rgba(0, 0, 0, 0)' }),
+          });
+        }
 
-        return new Style({
+        const outputValue = cell.aggregation?.outputValue;
+        const cacheKey = `${cell.id}-${outputValue ?? 'na'}`;
+        const cached = gridStyleCacheRef.current.get(cacheKey);
+        if (cached) return cached;
+
+        const colors = getGridCellStyleColors(cell, visibleClassificationLayerRef.current, gridRenderSettingsRef.current);
+        const style = new Style({
           stroke: new Stroke({
             color: colors.strokeColor,
             width: gridRenderSettingsRef.current.strokeWidth,
@@ -254,6 +291,8 @@ export function useMap(metadata: RasterMetadata | null) {
             color: colors.fillColor,
           }),
         });
+        gridStyleCacheRef.current.set(cacheKey, style);
+        return style;
       },
     });
     map.addLayer(gridLayer);
@@ -373,92 +412,31 @@ export function useMap(metadata: RasterMetadata | null) {
       currentView: buildMapViewDebugPayload(map.getView()),
     });
 
-    const visibleClassificationLayer = getVisibleClassificationLayer(
-      classificationLayers,
-      visibleClassificationLayerId,
-    );
-    const previewSampleData = preview.sampleData;
-    const styledPreviewUrl =
-      preview.sampleBandCount === 1 && previewSampleData && visibleClassificationLayer
-        ? measurePerformance('raster:styled-preview', () =>
-            createPreviewDataUrl(
-              preview.width,
-              preview.height,
-              buildRasterClassificationPreviewRgba(
-                previewSampleData,
-                preview.width,
-                preview.height,
-                visibleClassificationLayer,
-                preview.noDataValue ?? null,
-              ),
-            ),
-          )
-        : preview.url;
-
-    const source = new Static({
-      url: styledPreviewUrl,
-      imageExtent: metadata.boundingBox,
-      projection: metadata.crsCode,
-      crossOrigin: 'anonymous',
-    });
-
-    const layer = new ImageLayer({
-      source,
-      visible: layers.raster,
-      zIndex: 0,
-    });
-
-    if (rasterLayerRef.current) {
-      map.removeLayer(rasterLayerRef.current);
-    }
-
-    rasterLayerRef.current = layer;
-    map.getLayers().insertAt(0, layer);
-    const nextView = new View({
-      projection: metadata.crsCode,
-      center: [
-        (metadata.boundingBox[0] + metadata.boundingBox[2]) / 2,
-        (metadata.boundingBox[1] + metadata.boundingBox[3]) / 2,
-      ],
-      zoom: 2,
-    });
-    map.setView(nextView);
-    debugLog('map', '静态影像图层已插入', {
-      layerCount: map.getLayers().getLength(),
-      view: buildMapViewDebugPayload(nextView),
-      imageExtent: metadata.boundingBox,
-    });
-    scheduleMapResize(map, () => {
-      nextView.fit(metadata.boundingBox, {
-        padding: [24, 24, 24, 24],
-        maxZoom: 22,
-      });
-      debugLog('map', '静态影像挂载后的首轮 fit 已执行', {
-        size: map.getSize(),
-        view: buildMapViewDebugPayload(nextView),
-      });
-    });
+    let source: Static | null = null;
+    let nextView: View | null = null;
+    let disposed = false;
 
     const handleImageLoadStart = () => {
       debugLog('map', 'ImageStatic imageloadstart', {
-        imageExtent: source.getImageExtent(),
-        urlLength: styledPreviewUrl.length,
+        imageExtent: source?.getImageExtent(),
+        urlLength: source?.getUrl()?.length ?? 0,
       });
     };
     const handleImageLoadEnd = () => {
+      if (!nextView) return;
       debugLog('map', 'ImageStatic imageloadend', {
-        imageExtent: source.getImageExtent(),
+        imageExtent: source?.getImageExtent(),
         mapSize: map.getSize(),
         view: buildMapViewDebugPayload(nextView),
       });
       scheduleMapResize(map, () => {
-        nextView.fit(metadata.boundingBox, {
+        nextView!.fit(metadata.boundingBox, {
           padding: [24, 24, 24, 24],
           maxZoom: 22,
         });
         debugLog('map', 'imageloadend 后再次 fit', {
           size: map.getSize(),
-          view: buildMapViewDebugPayload(nextView),
+          view: buildMapViewDebugPayload(nextView!),
         });
       });
     };
@@ -466,14 +444,157 @@ export function useMap(metadata: RasterMetadata | null) {
       debugLog('map', 'ImageStatic imageloaderror', event);
     };
 
-    source.on('imageloadstart', handleImageLoadStart);
-    source.on('imageloadend', handleImageLoadEnd);
-    source.on('imageloaderror', handleImageLoadError);
+    void (async () => {
+      const visibleClassificationLayer = getVisibleClassificationLayer(
+        classificationLayers,
+        visibleClassificationLayerId,
+      );
+      const previewSampleData = preview.sampleData;
+      let styledPreviewUrl = preview.url;
+
+      const computeStyledPreviewUrlSync = () =>
+        measurePerformance('raster:styled-preview', () =>
+          createPreviewDataUrl(
+            preview.width,
+            preview.height,
+            buildRasterClassificationPreviewRgba(
+              previewSampleData!,
+              preview.width,
+              preview.height,
+              visibleClassificationLayer!,
+              preview.noDataValue ?? null,
+            ),
+          ),
+        );
+
+      if (
+        preview.sampleBandCount === 1 &&
+        previewSampleData &&
+        visibleClassificationLayer &&
+        workerRef.current
+      ) {
+        previewJobIdRef.current += 1;
+        const jobId = `${previewJobIdRef.current}`;
+
+        try {
+          styledPreviewUrl = await new Promise<string>((resolve, reject) => {
+            const worker = workerRef.current!;
+            const handleMessage = (event: MessageEvent<RasterWorkerResponse>) => {
+              const response = event.data;
+              if (response.id !== jobId) return;
+              clearTimeout(timeout);
+              worker.removeEventListener('message', handleMessage);
+              worker.removeEventListener('error', handleError);
+              if (response.type === 'recolor-preview') {
+                const rgba = new Uint8ClampedArray(response.result.rgbaBuffer);
+                resolve(
+                  createPreviewDataUrl(
+                    response.result.width,
+                    response.result.height,
+                    rgba,
+                  ),
+                );
+              } else {
+                resolve(preview.url);
+              }
+            };
+            const handleError = (event: ErrorEvent) => {
+              clearTimeout(timeout);
+              worker.removeEventListener('message', handleMessage);
+              worker.removeEventListener('error', handleError);
+              reject(new Error(`Worker error: ${event.message}`));
+            };
+            worker.addEventListener('message', handleMessage);
+            worker.addEventListener('error', handleError);
+            const timeout = setTimeout(() => {
+              worker.removeEventListener('message', handleMessage);
+              worker.removeEventListener('error', handleError);
+              reject(new Error('Worker preview timeout'));
+            }, 30000);
+            worker.postMessage({
+              id: jobId,
+              type: 'recolor-preview',
+              payload: {
+                width: preview.width,
+                height: preview.height,
+                sampleData: previewSampleData.slice(),
+                noDataValue: preview.noDataValue ?? null,
+                layer: visibleClassificationLayer,
+              },
+            } satisfies RasterWorkerRequest);
+          });
+        } catch (workerError) {
+          debugLog('map', 'Worker 预览重着色失败，回退主线程', workerError);
+          styledPreviewUrl = computeStyledPreviewUrlSync();
+        }
+      } else if (
+        preview.sampleBandCount === 1 &&
+        previewSampleData &&
+        visibleClassificationLayer
+      ) {
+        styledPreviewUrl = computeStyledPreviewUrlSync();
+      }
+
+      if (disposed) {
+        return;
+      }
+
+      source = new Static({
+        url: styledPreviewUrl,
+        imageExtent: metadata.boundingBox,
+        projection: metadata.crsCode,
+        crossOrigin: 'anonymous',
+      });
+
+      const layer = new ImageLayer({
+        source,
+        visible: layers.raster,
+        zIndex: 0,
+      });
+
+      if (rasterLayerRef.current) {
+        map.removeLayer(rasterLayerRef.current);
+      }
+
+      rasterLayerRef.current = layer;
+      map.getLayers().insertAt(0, layer);
+      nextView = new View({
+        projection: metadata.crsCode,
+        center: [
+          (metadata.boundingBox[0] + metadata.boundingBox[2]) / 2,
+          (metadata.boundingBox[1] + metadata.boundingBox[3]) / 2,
+        ],
+        zoom: 2,
+      });
+      map.setView(nextView);
+      debugLog('map', '静态影像图层已插入', {
+        layerCount: map.getLayers().getLength(),
+        view: buildMapViewDebugPayload(nextView),
+        imageExtent: metadata.boundingBox,
+      });
+      scheduleMapResize(map, () => {
+        nextView!.fit(metadata.boundingBox, {
+          padding: [24, 24, 24, 24],
+          maxZoom: 22,
+        });
+        debugLog('map', '静态影像挂载后的首轮 fit 已执行', {
+          size: map.getSize(),
+          view: buildMapViewDebugPayload(nextView),
+        });
+      });
+
+      source.on('imageloadstart', handleImageLoadStart);
+      source.on('imageloadend', handleImageLoadEnd);
+      source.on('imageloaderror', handleImageLoadError);
+    })();
 
     return () => {
-      source.un('imageloadstart', handleImageLoadStart);
-      source.un('imageloadend', handleImageLoadEnd);
-      source.un('imageloaderror', handleImageLoadError);
+      disposed = true;
+      if (source) {
+        source.un('imageloadstart', handleImageLoadStart);
+        source.un('imageloadend', handleImageLoadEnd);
+        source.un('imageloaderror', handleImageLoadError);
+      }
     };
   }, [classificationLayers, layers.raster, metadata, preview, visibleClassificationLayerId]);
 
@@ -486,6 +607,7 @@ export function useMap(metadata: RasterMetadata | null) {
   }, [layers.grid]);
 
   useEffect(() => {
+    gridStyleCacheRef.current.clear();
     gridLayerRef.current?.changed();
   }, [classificationLayers, gridCells, visibleClassificationLayerId, gridRenderSettings]);
 
@@ -519,14 +641,14 @@ export function useMap(metadata: RasterMetadata | null) {
       source.clear();
       setPreview(cells, summary);
 
-      for (const cell of cells) {
-        source.addFeature(
+      const features = cells.map(
+        (cell) =>
           new Feature({
             geometry: new Polygon(cell.polygon),
             gridCell: cell,
           }),
-        );
-      }
+      );
+      source.addFeatures(features);
     };
 
     if (!fence) {
@@ -543,6 +665,7 @@ export function useMap(metadata: RasterMetadata | null) {
         buildGridPreview(fence.geometry.coordinates, cellSize, {
           metricTransform,
           rotationDeg: rotation,
+          maxPreviewCells: 50_000,
         }),
       );
       renderGridPreview(basePreview.cells, basePreview.summary);
@@ -568,22 +691,94 @@ export function useMap(metadata: RasterMetadata | null) {
           }
 
           useLoadingStore.getState().update('正在汇总网格像元...');
-          const aggregation = await measurePerformanceAsync('grid:aggregation', () =>
-            buildGridAggregationFromFenceWindowAsync(
-              {
-                ...fenceWindow,
-                fenceRings: fence.geometry.coordinates,
-                metricTransform,
-                gridCellWidth: cellSize,
-                gridCellHeight: cellSize,
-                aggregationMode,
-                rotationDeg: rotation,
-              },
-              {
-                rowsPerChunk: 128,
-              },
-            ),
-          );
+          let aggregation: import('@/shared/types/grid').GridAggregationResult;
+
+          const computeAggregationFallback = () =>
+            measurePerformanceAsync('grid:aggregation', () =>
+              buildGridAggregationFromFenceWindowAsync(
+                {
+                  ...fenceWindow,
+                  fenceRings: fence.geometry.coordinates,
+                  metricTransform,
+                  gridCellWidth: cellSize,
+                  gridCellHeight: cellSize,
+                  aggregationMode,
+                  rotationDeg: rotation,
+                },
+                {
+                  rowsPerChunk: 128,
+                },
+              ),
+            );
+
+          if (workerRef.current) {
+            aggregationJobIdRef.current += 1;
+            const jobId = `${aggregationJobIdRef.current}`;
+            try {
+              aggregation = await new Promise<import('@/shared/types/grid').GridAggregationResult>((resolve, reject) => {
+                const worker = workerRef.current!;
+                const handleMessage = (event: MessageEvent<RasterWorkerResponse>) => {
+                  const response = event.data;
+                  if (response.id !== jobId) return;
+                  clearTimeout(timeout);
+                  worker.removeEventListener('message', handleMessage);
+                  worker.removeEventListener('error', handleError);
+                  if (response.type === 'aggregate-grid') {
+                    resolve(response.result);
+                  } else if (response.type === 'error') {
+                    reject(new Error(response.error));
+                  } else {
+                    reject(new Error('Unexpected worker response type'));
+                  }
+                };
+                const handleError = (event: ErrorEvent) => {
+                  clearTimeout(timeout);
+                  worker.removeEventListener('message', handleMessage);
+                  worker.removeEventListener('error', handleError);
+                  reject(new Error(`Worker error: ${event.message}`));
+                };
+                worker.addEventListener('message', handleMessage);
+                worker.addEventListener('error', handleError);
+                const timeout = setTimeout(() => {
+                  worker.removeEventListener('message', handleMessage);
+                  worker.removeEventListener('error', handleError);
+                  reject(new Error('Worker aggregation timeout'));
+                }, 30000);
+                const primaryBand = fenceWindow.bands[0];
+                if (!primaryBand) {
+                  clearTimeout(timeout);
+                  worker.removeEventListener('message', handleMessage);
+                  worker.removeEventListener('error', handleError);
+                  reject(new Error('GeoTIFF 缺少主波段数据'));
+                  return;
+                }
+                worker.postMessage({
+                  id: jobId,
+                  type: 'aggregate-grid',
+                  payload: {
+                    fenceRings: fence.geometry.coordinates,
+                    window: fenceWindow.window,
+                    width: fenceWindow.width,
+                    height: fenceWindow.height,
+                    origin: fenceWindow.origin,
+                    resolution: fenceWindow.resolution,
+                    band: Float32Array.from(primaryBand),
+                    noDataValue: fenceWindow.sourceNoDataValue,
+                    metricTransform: metricTransform ?? null,
+                    gridCellWidth: cellSize,
+                    gridCellHeight: cellSize,
+                    aggregationMode,
+                    rotationDeg: rotation,
+                  },
+                } satisfies RasterWorkerRequest);
+              });
+            } catch (workerError) {
+              debugLog('map', 'Worker 网格聚合失败，回退主线程', workerError);
+              aggregation = await computeAggregationFallback();
+            }
+          } else {
+            aggregation = await computeAggregationFallback();
+          }
 
           const nextPreview = buildGridPreview(
             fence.geometry.coordinates,

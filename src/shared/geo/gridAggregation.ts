@@ -482,8 +482,8 @@ export function aggregateGridCellsFromRasterWindow(input: {
 
       cell.validPixelCount += 1;
       cell.sumValue += value;
-      cell.minValue = Math.min(cell.minValue, value);
-      cell.maxValue = Math.max(cell.maxValue, value);
+      cell.minValue = Math.min(cell.minValue ?? Number.POSITIVE_INFINITY, value);
+      cell.maxValue = Math.max(cell.maxValue ?? Number.NEGATIVE_INFINITY, value);
     }
   }
 
@@ -593,8 +593,8 @@ export async function aggregateGridCellsFromRasterWindowAsync(
 
       cell.validPixelCount += 1;
       cell.sumValue += value;
-      cell.minValue = Math.min(cell.minValue, value);
-      cell.maxValue = Math.max(cell.maxValue, value);
+      cell.minValue = Math.min(cell.minValue ?? Number.POSITIVE_INFINITY, value);
+      cell.maxValue = Math.max(cell.maxValue ?? Number.NEGATIVE_INFINITY, value);
     }
   }
 
