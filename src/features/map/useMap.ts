@@ -658,6 +658,13 @@ export function useMap(metadata: RasterMetadata | null) {
       };
     }
 
+    // 编辑围栏时暂不重新计算网格，避免拖拽顶点过程中频繁触发重算
+    if (fenceMode === 'edit') {
+      return () => {
+        disposed = true;
+      };
+    }
+
     try {
       const metricTransform = metadata?.metricTransform;
 
@@ -818,7 +825,7 @@ export function useMap(metadata: RasterMetadata | null) {
     return () => {
       disposed = true;
     };
-  }, [cellSize, rotation, aggregationMode, fence, setPreview, sourceFile]);
+  }, [cellSize, rotation, aggregationMode, fence, fenceMode, setPreview, sourceFile]);
 
   useEffect(() => {
     if (import.meta.env.VITEST || !mapRef.current || !fenceSourceRef.current) {
