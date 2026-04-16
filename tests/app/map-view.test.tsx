@@ -7,10 +7,10 @@ import { useMapUiStore } from '@/features/map/mapUiStore';
 import { useRasterStore } from '@/features/map/rasterStore';
 import {
   createAnimationFrameValueScheduler,
-  createGridCellHitTester,
   getGridCellStyleColors,
   scheduleMapResizeFrame,
 } from '@/features/map/useMap';
+import { createGridCellHitTester } from '@/features/map/mapUtils';
 import { createMetricTransform } from '@/shared/geo/crs';
 import type { GridCell, GridRenderSettings } from '@/shared/types/grid';
 import type { RasterClassificationLayer, RasterMetadata } from '@/shared/types/raster';
