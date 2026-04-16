@@ -91,21 +91,29 @@ export function RightPanel() {
       return null;
     }
     const rules = activeClassificationLayer.rules;
+    const matchedCounts = new Array(rules.length).fill(0);
+
+    // 单次遍历网格，命中规则后立即 break，避免对同一像元重复判断后续规则
+    for (const cell of gridCells) {
+      const val = cell.aggregation?.outputValue;
+      if (val == null) continue;
+      for (let i = 0; i < rules.length; i++) {
+        const rule = rules[i];
+        if (val >= rule.min && (rule.max === null || val <= rule.max)) {
+          matchedCounts[i]++;
+          break;
+        }
+      }
+    }
+
     let totalMatchedCount = 0;
     let totalFertilizerCents = 0;
     const perRule: Array<{ matchedCount: number; areaM2: number; totalAmount: number }> = [];
 
-    for (const rule of rules) {
-      let matchedCount = 0;
-      for (const cell of gridCells) {
-        const val = cell.aggregation?.outputValue;
-        if (val == null) continue;
-        if (val >= rule.min && (rule.max === null || val <= rule.max)) {
-          matchedCount++;
-        }
-      }
+    for (let i = 0; i < rules.length; i++) {
+      const rule = rules[i];
+      const matchedCount = matchedCounts[i];
       const areaM2 = matchedCount * cellAreaM2;
-      // 使用分整数运算避免浮点精度问题（如 0.1 * 3 = 0.30000000000000004）
       const rateCents = Math.round((rule.applicationRate ?? 0) * 100);
       const totalAmountCents = rateCents * matchedCount;
       const totalAmount = totalAmountCents / 100;
