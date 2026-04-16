@@ -9,3 +9,4 @@ vite.config.d.ts
 package-lock.json
 .worktrees/
 .ace-tool/
+data/

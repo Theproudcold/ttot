@@ -42,23 +42,32 @@
 ```text
 src/
 ├── app/
-│   ├── layout/          # 三栏布局 (TopBar, LeftPanel, RightPanel)
-│   ├── components/      # 通用 UI 组件
-│   ├── App.tsx          # 应用根组件
-│   └── main.tsx         # 渲染入口
+│   ├── layout/               # 三栏布局 (TopBar, LeftPanel, RightPanel)
+│   │   └── right-panel/      # 右侧面板子模块（分类渲染、Hover 信息、输入控件）
+│   ├── styles/               # 全局与布局样式 (base / layout / components)
+│   ├── App.tsx               # 应用根组件
+│   └── main.tsx              # 渲染入口
 ├── features/
-│   ├── map/             # 地图、栅格图层、加载器、交互钩子
-│   ├── grid/            # 网格状态与预览逻辑
-│   ├── fence/           # 围栏绘制、编辑与校验
-│   ├── export/          # GeoJSON / GeoTIFF 导出链路
-│   └── loading/         # 全局加载状态
+│   ├── map/                  # 地图、栅格图层、加载器、交互钩子
+│   ├── grid/                 # 网格状态与预览逻辑
+│   ├── fence/                # 围栏绘制、编辑与校验
+│   ├── export/               # GeoJSON / GeoTIFF 导出链路
+│   └── loading/              # 全局加载状态
 ├── shared/
-│   ├── geo/             # 地理空间计算 (CRS、栅格处理、网格生成、聚合)
-│   ├── hooks/           # 通用 React Hooks
-│   ├── types/           # 全局类型定义
-│   └── utils/           # 工具函数
-├── tests/               # 单元测试与组件测试
-└── docs/superpowers/    # 设计与实现方案文档
+│   ├── geo/                  # 地理空间计算
+│   │   ├── crs.ts            # 坐标系检测与投影转换
+│   │   ├── fence.ts          # 围栏裁剪与校验
+│   │   ├── grid.ts           # 网格生成
+│   │   ├── gridAggregation.ts# 网格像元聚合
+│   │   ├── geotiffExport.ts  # GeoTIFF 导出
+│   │   ├── geotiffWriter.ts  # GeoTIFF 写入器
+│   │   ├── raster*.ts        # 栅格解析、分类、颜色、IO、预览
+│   │   └── metricTransform.ts# 度量空间变换
+│   ├── hooks/                # 通用 React Hooks
+│   ├── types/                # 全局类型定义
+│   └── utils/                # 工具函数
+tests/                        # 单元测试与组件测试
+docs/superpowers/             # 设计与实现方案文档
 ```
 
 ## 快速启动
@@ -93,8 +102,12 @@ pnpm test
 - [x] 栅格分类图层（规则/渐变）与处方用量估算
 - [x] 网格均值聚合统一驱动地图预览与 GeoTIFF 导出
 - [x] 多坐标系检测与投影转换
+- [x] 网格旋转控制与围栏裁剪
+- [x] RasterSession 复用（减少重复读取开销）
+- [x] 地图 Hover 计算开销优化
 
 ### 进行中 / 计划
-- [ ] 渲染性能优化：RasterSession 复用、Web Worker 后台计算、指针移动节流
+- [x] 渲染性能优化 Phase 1：指针移动节流、O(1) 网格查找、样式缓存、批量渲染
+- [x] Web Worker 后台计算
 - [ ] 多围栏队列管理与批量导出
 - [ ] 大型文件分块提取与内存优化
