@@ -39,6 +39,6 @@ export const useGridStore = create<GridState>((set) => ({
   setRotation: (rotation) => set({ rotation }),
   setAggregationMode: (aggregationMode) => set({ aggregationMode }),
   setSummary: (summary) => set({ summary }),
-  setPreview: (cells, summary) => set({ cells: [...cells], summary }),
+  setPreview: (cells, summary) => set({ cells, summary }),
   reset: () => set(INITIAL_STATE),
 }));

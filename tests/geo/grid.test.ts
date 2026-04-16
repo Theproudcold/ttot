@@ -117,4 +117,47 @@ describe('buildGridPreview', () => {
     expect(preview.cells.at(-1)?.center[0]).toBeCloseTo(119.42089806, 6);
     expect(preview.cells.at(-1)?.center[1]).toBeCloseTo(36.51057049, 6);
   });
+
+  it('limits preview cells when maxPreviewCells is exceeded', () => {
+    const preview = buildGridPreview(RECTANGLE_FENCE, 1, { maxPreviewCells: 50 });
+
+    expect(preview.summary.totalCells).toBe(200);
+    expect(preview.summary.previewCellCount).toBeLessThanOrEqual(50);
+    expect(preview.summary.isPreviewLimited).toBe(true);
+    expect(preview.summary.previewStride).toBeGreaterThan(1);
+    expect(preview.summary.warning).toContain('地图仅预览采样网格');
+    expect(preview.cells).toHaveLength(preview.summary.previewCellCount);
+  });
+
+  it('does not limit preview cells when count is under maxPreviewCells', () => {
+    const preview = buildGridPreview(RECTANGLE_FENCE, 5, { maxPreviewCells: 50 });
+
+    expect(preview.summary.totalCells).toBe(8);
+    expect(preview.summary.previewCellCount).toBe(8);
+    expect(preview.summary.isPreviewLimited).toBe(false);
+    expect(preview.summary.previewStride).toBe(1);
+    expect(preview.summary.warning).toBeNull();
+    expect(preview.cells).toHaveLength(8);
+  });
+
+  it('preserves totalCells accuracy even when preview is limited', () => {
+    const preview = buildGridPreview(
+      [
+        [
+          [0, 0],
+          [100, 0],
+          [100, 100],
+          [0, 100],
+          [0, 0],
+        ],
+      ],
+      1,
+      { maxPreviewCells: 100 },
+    );
+
+    expect(preview.summary.totalCells).toBe(10000);
+    expect(preview.summary.previewCellCount).toBeLessThanOrEqual(100);
+    expect(preview.summary.isPreviewLimited).toBe(true);
+    expect(preview.cells).toHaveLength(preview.summary.previewCellCount);
+  });
 });

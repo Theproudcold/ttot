@@ -11,6 +11,7 @@ type GridPreviewOptions = {
   metricTransform?: MetricTransform;
   aggregation?: GridAggregationResult;
   rotationDeg?: number;
+  maxPreviewCells?: number;
 };
 
 /**
@@ -140,18 +141,26 @@ export function buildGridPreview(
     }
   }
 
+  const maxPreviewCells = options.maxPreviewCells;
+  const needsLimit = maxPreviewCells != null && cells.length > maxPreviewCells;
+  const previewCells = needsLimit
+    ? cells.filter((_, index) => index % Math.ceil(cells.length / maxPreviewCells) === 0)
+    : cells;
+
   return {
-    cells,
+    cells: previewCells,
     summary: {
       cellSize,
       rotation: rotationDeg,
       rows,
       cols,
       totalCells: estimatedTotalCells,
-      previewCellCount: cells.length,
-      isPreviewLimited: false,
-      previewStride: 1,
-      warning: null,
+      previewCellCount: previewCells.length,
+      isPreviewLimited: needsLimit,
+      previewStride: needsLimit ? Math.ceil(cells.length / maxPreviewCells) : 1,
+      warning: needsLimit
+        ? `当前网格数量约 ${estimatedTotalCells.toLocaleString()} 个，地图仅预览采样网格（约 ${previewCells.length.toLocaleString()} 个），导出结果仍完整。`
+        : null,
     },
   };
 }

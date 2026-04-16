@@ -55,6 +55,7 @@ describe('TopBar', () => {
         isPreviewLimited: false,
         previewStride: 1,
         rotation: 0,
+        warning: null,
       });
       useGridStore.getState().setPreview(
         [

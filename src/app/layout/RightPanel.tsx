@@ -1,3 +1,5 @@
+import { useMemo } from 'react';
+
 import { useFenceStore } from '@/features/fence/fenceStore';
 import { useGridStore } from '@/features/grid/gridStore';
 import { useMapUiStore } from '@/features/map/mapUiStore';
@@ -84,6 +86,34 @@ export function RightPanel() {
 
   const cellAreaM2 = cellSize > 0 ? cellSize * cellSize : 0;
 
+  const ruleStats = useMemo(() => {
+    if (!activeClassificationLayer || activeClassificationLayer.mode !== 'rules' || gridCells.length === 0) {
+      return null;
+    }
+    const rules = activeClassificationLayer.rules;
+    let totalMatchedCount = 0;
+    let totalFertilizer = 0;
+    const perRule: Array<{ matchedCount: number; areaM2: number; totalAmount: number }> = [];
+
+    for (const rule of rules) {
+      let matchedCount = 0;
+      for (const cell of gridCells) {
+        const val = cell.aggregation?.outputValue;
+        if (val == null) continue;
+        if (val >= rule.min && (rule.max === null || val <= rule.max)) {
+          matchedCount++;
+        }
+      }
+      const areaM2 = matchedCount * cellAreaM2;
+      const totalAmount = rule.applicationRate ? rule.applicationRate * matchedCount : 0;
+      totalMatchedCount += matchedCount;
+      totalFertilizer += totalAmount;
+      perRule.push({ matchedCount, areaM2, totalAmount });
+    }
+
+    return { perRule, totalArea: totalMatchedCount * cellAreaM2, totalFertilizer };
+  }, [activeClassificationLayer, gridCells, cellAreaM2]);
+
   return (
     <aside className="panel" aria-label="right-panel">
       <h2>当前结果</h2>
@@ -121,48 +151,31 @@ export function RightPanel() {
             <dt className="metric-label">网格比例</dt>
             <dd>{formatGridRatio(cellSize, metadata)}</dd>
           </div>
-          {activeClassificationLayer?.mode === 'rules' && gridCells.length > 0 && (() => {
-            const rules = activeClassificationLayer.rules;
-            let totalMatchedCount = 0;
-            let totalFertilizer = 0;
-            const ruleStats = rules.map((rule) => {
-              let ruleMatchCount = 0;
-              for (const cell of gridCells) {
-                const val = cell.aggregation?.outputValue;
-                if (val == null) continue;
-                if (val >= rule.min && (rule.max === null || val <= rule.max)) {
-                  ruleMatchCount++;
-                }
-              }
-              totalMatchedCount += ruleMatchCount;
-              const ruleAmount = rule.applicationRate != null ? rule.applicationRate * ruleMatchCount : 0;
-              totalFertilizer += ruleAmount;
-              return {
-                label: rule.label || `规则 ${rules.indexOf(rule) + 1}`,
-                amount: ruleAmount,
-                matchCount: ruleMatchCount,
-              };
-            });
-            const totalArea = totalMatchedCount * cellAreaM2;
-            return (
-              <>
-                {ruleStats.map((stat) => (
-                  <div key={stat.label} className="metric-item">
-                    <dt className="metric-label">{stat.label} 用药量</dt>
-                    <dd>{formatMetricNumber(stat.amount)}</dd>
-                  </div>
-                ))}
-                <div className="metric-item" style={{ borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: '8px', marginTop: '4px' }}>
-                  <dt className="metric-label">分类覆盖面积</dt>
-                  <dd>{formatMetricNumber(totalArea)} m²</dd>
+          {gridSummary?.warning ? (
+            <div className="metric-item" style={{ paddingTop: '4px' }}>
+              <span style={{ color: '#d35400', fontSize: '12px', lineHeight: '1.4' }}>
+                {gridSummary.warning}
+              </span>
+            </div>
+          ) : null}
+          {ruleStats && (
+            <>
+              {activeClassificationLayer.rules.map((rule, index) => (
+                <div key={rule.label || `规则 ${index + 1}`} className="metric-item">
+                  <dt className="metric-label">{rule.label || `规则 ${index + 1}`} 用药量</dt>
+                  <dd>{formatMetricNumber(ruleStats.perRule[index]?.totalAmount ?? 0)}</dd>
                 </div>
-                <div className="metric-item">
-                  <dt className="metric-label">预计总用药量</dt>
-                  <dd style={{ color: '#d35400', fontWeight: 600 }}>{formatMetricNumber(totalFertilizer)}</dd>
-                </div>
-              </>
-            );
-          })()}
+              ))}
+              <div className="metric-item" style={{ borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: '8px', marginTop: '4px' }}>
+                <dt className="metric-label">分类覆盖面积</dt>
+                <dd>{formatMetricNumber(ruleStats.totalArea)} m²</dd>
+              </div>
+              <div className="metric-item">
+                <dt className="metric-label">预计总用药量</dt>
+                <dd style={{ color: '#d35400', fontWeight: 600 }}>{formatMetricNumber(ruleStats.totalFertilizer)}</dd>
+              </div>
+            </>
+          )}
         </dl>
       </div>
 
@@ -329,18 +342,9 @@ export function RightPanel() {
               ) : (
                 <div className="classification-rules">
                   {activeClassificationLayer.rules.map((rule, index) => {
-                    let matchedCount = 0;
-                    if (gridCells && gridCells.length > 0) {
-                      for (const cell of gridCells) {
-                        const val = cell.aggregation?.outputValue;
-                        if (val == null) continue;
-                        if (val >= rule.min && (rule.max === null || val <= rule.max)) {
-                          matchedCount++;
-                        }
-                      }
-                    }
-                    const areaM2 = matchedCount * cellAreaM2;
-                    const totalAmount = rule.applicationRate ? rule.applicationRate * matchedCount : 0;
+                    const matchedCount = ruleStats?.perRule[index]?.matchedCount ?? 0;
+                    const areaM2 = ruleStats?.perRule[index]?.areaM2 ?? 0;
+                    const totalAmount = ruleStats?.perRule[index]?.totalAmount ?? 0;
 
                     return (
                       <div key={`${activeClassificationLayer.id}-rule-${index}`} className="classification-rule" style={{ marginTop: '16px' }}>
