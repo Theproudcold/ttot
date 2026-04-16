@@ -96,9 +96,12 @@ export function formatMetricNumber(value: number | null | undefined): string {
     return '--';
   }
 
+  // 清洗常见的浮点精度噪音（如 0.1 + 0.2 = 0.30000000000000004）
+  const cleaned = parseFloat(value.toFixed(12));
+
   return new Intl.NumberFormat('zh-CN', {
     maximumFractionDigits: 2,
-  }).format(value);
+  }).format(cleaned);
 }
 
 /**

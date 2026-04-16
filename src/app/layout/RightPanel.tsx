@@ -92,7 +92,7 @@ export function RightPanel() {
     }
     const rules = activeClassificationLayer.rules;
     let totalMatchedCount = 0;
-    let totalFertilizer = 0;
+    let totalFertilizerCents = 0;
     const perRule: Array<{ matchedCount: number; areaM2: number; totalAmount: number }> = [];
 
     for (const rule of rules) {
@@ -105,13 +105,16 @@ export function RightPanel() {
         }
       }
       const areaM2 = matchedCount * cellAreaM2;
-      const totalAmount = rule.applicationRate ? rule.applicationRate * matchedCount : 0;
+      // 使用分整数运算避免浮点精度问题（如 0.1 * 3 = 0.30000000000000004）
+      const rateCents = Math.round((rule.applicationRate ?? 0) * 100);
+      const totalAmountCents = rateCents * matchedCount;
+      const totalAmount = totalAmountCents / 100;
       totalMatchedCount += matchedCount;
-      totalFertilizer += totalAmount;
+      totalFertilizerCents += totalAmountCents;
       perRule.push({ matchedCount, areaM2, totalAmount });
     }
 
-    return { perRule, totalArea: totalMatchedCount * cellAreaM2, totalFertilizer };
+    return { perRule, totalArea: totalMatchedCount * cellAreaM2, totalFertilizer: totalFertilizerCents / 100 };
   }, [activeClassificationLayer, gridCells, cellAreaM2]);
 
   return (
