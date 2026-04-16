@@ -14,8 +14,8 @@ export default function App() {
         <MapView />
         <RightPanel />
       </div>
-      <AlertOverlay />
       <LoadingOverlay />
+      <AlertOverlay />
     </div>
   );
 }
