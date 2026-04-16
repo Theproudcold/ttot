@@ -84,7 +84,7 @@ self.onmessage = async (event: MessageEvent<RasterWorkerRequest>) => {
         result,
       };
 
-      postMessage(response);
+      postMessage(response, [band.buffer as Transferable]);
       return;
     }
 
@@ -126,7 +126,7 @@ self.onmessage = async (event: MessageEvent<RasterWorkerRequest>) => {
         },
       };
 
-      postMessage(response, [rgba.buffer as Transferable]);
+      postMessage(response, [rgba.buffer as Transferable, response.result.sampleData.buffer as Transferable]);
       return;
     }
 
@@ -141,7 +141,7 @@ self.onmessage = async (event: MessageEvent<RasterWorkerRequest>) => {
         result: validityMask,
       };
 
-      postMessage(response);
+      postMessage(response, [validityMask.data.buffer as Transferable]);
       return;
     }
 

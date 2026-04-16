@@ -39,6 +39,8 @@ export type GridSummary = {
 export type GridPreview = {
   cells: GridCell[];
   summary: GridSummary;
+  metricOrigin: [number, number];
+  metricCellSize: number;
 };
 
 export type GridAggregationResult = {

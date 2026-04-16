@@ -545,6 +545,9 @@ export async function aggregateGridCellsFromRasterWindowAsync(
     gridCenter = [(minX + maxX) / 2, (minY + maxY) / 2];
   }
 
+  // 快速围栏边界框预过滤，跳过明显在围栏外的像元
+  const [fenceMinX, fenceMinY, fenceMaxX, fenceMaxY] = getMetricBounds(fenceRings, resolvedMetricTransform);
+
   const cellsById: Record<string, GridCellAggregation> = {};
   const rowsPerChunk = resolveRowsPerChunk(options.rowsPerChunk);
   const yieldControl = options.yieldControl ?? defaultYieldControl;
@@ -560,6 +563,10 @@ export async function aggregateGridCellsFromRasterWindowAsync(
       const center = resolvedMetricTransform.toMetric(
         getPixelCenter(windowStartCol + col, windowStartRow + row, origin, resolution),
       );
+      const [px, py] = center;
+      if (px < fenceMinX || px > fenceMaxX || py < fenceMinY || py > fenceMaxY) {
+        continue;
+      }
       const cellMatch = getCellIdForPixel({
         center,
         gridMinX,

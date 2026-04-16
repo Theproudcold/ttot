@@ -109,6 +109,13 @@ export function buildGridPreview(
 
       const centerGeo = metricTransform.fromMetric(cellCenter);
 
+      // 快速边界框预检查，跳过明显在围栏外的单元中心
+      const [fMinX, fMinY, fMaxX, fMaxY] = getFenceSummary(rings).bbox;
+      const [cx, cy] = centerGeo;
+      if (cx < fMinX || cx > fMaxX || cy < fMinY || cy > fMaxY) {
+        continue;
+      }
+
       if (!isPointInFence(centerGeo, rings)) {
         continue;
       }
@@ -162,6 +169,8 @@ export function buildGridPreview(
         ? `当前网格数量约 ${estimatedTotalCells.toLocaleString()} 个，地图仅预览采样网格（约 ${previewCells.length.toLocaleString()} 个），导出结果仍完整。`
         : null,
     },
+    metricOrigin: [gridMinX, gridMinY] as [number, number],
+    metricCellSize: cellSize,
   };
 }
 
