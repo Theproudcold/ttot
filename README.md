@@ -78,6 +78,126 @@ tests/                        # 单元测试与组件测试
 docs/superpowers/             # 设计与实现方案文档
 ```
 
+## 功能模块介绍
+
+### 1. 栅格文件接入模块
+- **职责**：负责 GeoTIFF 文件选择、元信息解析、预览图生成和有效区域提取，是整条业务链路的入口。
+- **核心能力**：
+  - 读取文件名、尺寸、CRS、像元大小、边界框等基础信息
+  - 先生成预览图，后异步提取有效数据掩码，缩短首屏等待时间
+  - 维护读取进度、加载阶段、异常状态与指针坐标显示
+- **对应实现**：
+  - `src/features/map/rasterStore.ts`
+  - `src/features/map/useRasterLoader.ts`
+  - `src/shared/geo/rasterIo.ts`
+  - `src/shared/geo/rasterPreview.ts`
+
+### 2. 地图工作区模块
+- **职责**：负责地图实例创建、图层渲染、视口适配和鼠标悬停反馈，是用户的核心交互区。
+- **核心能力**：
+  - 使用 OpenLayers 渲染影像、围栏和网格图层
+  - 提供“适配影像 / 适配围栏”视图定位
+  - 实时展示悬停坐标、像元值、分类结果、命中网格等信息
+  - 支持分类图例展示与图层显隐控制
+- **对应实现**：
+  - `src/features/map/MapView.tsx`
+  - `src/features/map/useMap.ts`
+  - `src/features/map/mapUiStore.ts`
+  - `src/features/map/mapUtils.ts`
+
+### 3. 围栏绘制与裁剪模块
+- **职责**：负责围栏绘制、编辑、校验、摘要统计与边界裁剪，确保后续分析范围准确。
+- **核心能力**：
+  - 支持地图上绘制和编辑多边形围栏
+  - 计算围栏面积、边界框、顶点数等摘要信息
+  - 将围栏裁剪到影像边界或有效数据区域内
+  - 为点选命中、导出边界和网格生成提供统一空间范围
+- **对应实现**：
+  - `src/features/fence/fenceStore.ts`
+  - `src/shared/geo/fence.ts`
+
+### 4. 网格生成与聚合分析模块
+- **职责**：负责按围栏范围生成网格，并对网格内像元执行聚合计算，是项目的分析核心。
+- **核心能力**：
+  - 支持自定义网格尺寸、旋转角度和聚合模式
+  - 根据围栏中心命中规则筛选有效网格
+  - 按网格统计像元均值、有效像元数量等结果
+  - 超大网格仅做采样预览，避免地图渲染过载
+- **对应实现**：
+  - `src/features/grid/gridStore.ts`
+  - `src/shared/geo/grid.ts`
+  - `src/shared/geo/gridAggregation.ts`
+  - `src/shared/geo/gridLookup.ts`
+
+### 5. 分类渲染与处方配置模块
+- **职责**：负责单波段影像的分类着色、规则配置和施肥/施药量映射，支撑可视化表达与处方数据输出。
+- **核心能力**：
+  - 支持渐变色和规则分段两种分类模式
+  - 支持多套分类方案的新建、复制、切换和显示控制
+  - 可为规则配置颜色、标签和 `applicationRate`
+  - 根据分类结果汇总覆盖面积与预计总用量
+- **对应实现**：
+  - `src/features/map/mapUiStore.ts`
+  - `src/app/layout/RightPanel.tsx`
+  - `src/app/layout/right-panel/classificationUtils.ts`
+  - `src/shared/geo/rasterClassification.ts`
+
+### 6. 导出模块
+- **职责**：负责将围栏、网格和裁剪后的分析结果输出为标准地理数据文件，打通结果落地链路。
+- **核心能力**：
+  - 导出围栏 GeoJSON
+  - 导出包含聚合值和施肥量字段的网格 GeoJSON
+  - 导出围栏裁剪后的 GeoTIFF，并按网格聚合结果回写像元
+  - 在规则分类模式下追加处方波段，供下游设备读取
+- **对应实现**：
+  - `src/features/export/exportGeoJson.ts`
+  - `src/features/export/exportGeoTiff.ts`
+  - `src/shared/geo/geotiffExport.ts`
+  - `src/shared/geo/geotiffWriter.ts`
+
+### 7. 后台计算与性能保障模块
+- **职责**：负责把重计算任务搬到后台线程，并通过缓存与节流策略控制前端性能风险。
+- **核心能力**：
+  - 将预览生成、有效区域提取、网格聚合等任务下沉到 Web Worker
+  - Worker 不可用时自动回退主线程执行
+  - 使用 rAF 节流、样式缓存、空间索引等手段降低交互开销
+  - 保证大尺寸影像和高密度网格场景下的可用性
+- **对应实现**：
+  - `src/shared/workers/rasterCompute.worker.ts`
+  - `src/features/map/useRasterLoader.ts`
+  - `src/features/map/useMap.ts`
+  - `src/features/map/debugLogger.ts`
+
+### 8. 界面编排与全局状态模块
+- **职责**：负责三栏工作台布局、顶层操作编排、加载提示和全局状态衔接，串起所有业务模块。
+- **核心能力**：
+  - 左侧面板承载文件、围栏和网格参数配置
+  - 中间地图工作区承载影像与空间结果可视化
+  - 右侧面板承载结果统计、图层控制、悬停信息和分类方案配置
+  - 顶栏统一提供围栏、网格、GeoTIFF 导出入口
+- **对应实现**：
+  - `src/app/App.tsx`
+  - `src/app/layout/TopBar.tsx`
+  - `src/app/layout/LeftPanel.tsx`
+  - `src/app/layout/RightPanel.tsx`
+  - `src/features/loading/loadingStore.ts`
+
+## 典型业务流程
+
+1. 用户在左侧面板选择 GeoTIFF 文件，系统解析元信息并生成地图预览。
+2. 用户在地图上绘制或编辑围栏，围栏结果写入全局状态并同步展示摘要。
+3. 用户配置网格尺寸、旋转角度和分类方案，系统生成网格预览并完成像元聚合。
+4. 地图与右侧面板同步展示网格统计、分类结果和处方量估算。
+5. 用户通过顶栏导出围栏 GeoJSON、网格 GeoJSON 或裁剪后的 GeoTIFF 结果。
+
+## 模块关系说明
+
+- `app`：负责页面布局和交互入口编排。
+- `features`：负责具体业务模块的状态与流程控制。
+- `shared/geo`：负责地理空间计算、GeoTIFF 处理和分类算法，是底层能力层。
+- `shared/types`：定义围栏、网格、栅格等核心数据结构，统一模块间的数据契约。
+- `tests`：覆盖导出、空间计算、状态管理和主要界面交互，保证模块协同不跑偏。
+
 ## 快速启动
 
 依赖环境：Node.js 18+，pnpm
