@@ -4,6 +4,45 @@ import type { RasterValueRange } from '@/shared/types/raster';
 const MAX_PREVIEW_EDGE = 2048;
 
 /**
+ * 统计 TIFF ExtraSamples(338) 声明的附加波段数量。
+ * 附加波段总是排在末尾；geotiff.js 对单元素数组可能返回标量，两种形态都要兼容。
+ */
+export function countExtraSamples(fileDirectory: unknown): number {
+  if (!fileDirectory || typeof fileDirectory !== 'object') {
+    return 0;
+  }
+
+  const value = (fileDirectory as Record<string, unknown>).ExtraSamples;
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? 1 : 0;
+  }
+
+  if (Array.isArray(value) || ArrayBuffer.isView(value)) {
+    return (value as ArrayLike<unknown>).length;
+  }
+
+  return 0;
+}
+
+/**
+ * 计算真正承载影像数据的波段数：扣除由 ExtraSamples 声明的附加波段。
+ *
+ * 本工具 rules 模式导出时会追加一个 Float32 处方波段（并写 ExtraSamples），
+ * 该文件被重新导入时应仍按主波段做分类着色，因此不能直接用 SamplesPerPixel 判断。
+ */
+export function resolveDataBandCount(samplesPerPixel: number, extraSamplesCount: number): number {
+  if (!Number.isFinite(samplesPerPixel) || samplesPerPixel <= 0) {
+    return 1;
+  }
+
+  const safeExtra =
+    Number.isFinite(extraSamplesCount) && extraSamplesCount > 0 ? Math.floor(extraSamplesCount) : 0;
+
+  return Math.max(1, Math.floor(samplesPerPixel) - safeExtra);
+}
+
+/**
  * 判断像元值是否有效：必须是有限数，且不等于 noDataValue。
  */
 export function isValidRasterSample(value: number, noDataValue: number | null): boolean {

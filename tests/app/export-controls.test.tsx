@@ -142,6 +142,7 @@ describe('ExportControls', () => {
     vi.mocked(exportFenceGeoTiff).mockResolvedValueOnce({
       blob: new Blob(['demo'], { type: 'image/tiff' }),
       filename: 'test2-clipped.tif',
+      warnings: [],
     });
     vi.mocked(downloadExportedGeoTiff).mockResolvedValueOnce();
 

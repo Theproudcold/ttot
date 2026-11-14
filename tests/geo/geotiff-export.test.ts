@@ -37,8 +37,20 @@ describe('getPixelWindowFromFenceBoundingBox', () => {
     ).toEqual([1, 2, 4, 5]);
   });
 
-  it('throws when the fence bbox does not intersect the raster extent', () => {
-    expect(() =>
+  it('handles south-up rasters whose resolutionY is positive', () => {
+    // south-up：行号随 y 增大而增大。若按 north-up 推导会得到 startRow > endRow 的退化窗口。
+    expect(
+      getPixelWindowFromFenceBoundingBox({
+        bbox: [10, 20, 30, 50],
+        rasterWidth: 10,
+        rasterHeight: 10,
+        origin: [0, 0, 0],
+        resolution: [10, 10, 0],
+      }),
+    ).toEqual([1, 2, 3, 5]);
+  });
+
+  it('throws when the fence bbox does not intersect the raster extent', () => {    expect(() =>
       getPixelWindowFromFenceBoundingBox({
         bbox: [300, 300, 320, 320],
         rasterWidth: 10,
@@ -204,8 +216,7 @@ describe('buildGridAggregationFromFenceWindow', () => {
   });
 });
 
-describe('applyGridAggregationToFenceWindowBands', () => {
-  it('rewrites hit-cell pixels to the aggregated grid value and keeps others as nodata', () => {
+describe('applyGridAggregationToFenceWindowBands', () => {  it('rewrites hit-cell pixels to the aggregated grid value and keeps others as nodata', () => {
     const result = applyGridAggregationToFenceWindowBands({
       bands: [new Float32Array([1, 3, 5, 7])],
       window: [0, 0, 2, 2],

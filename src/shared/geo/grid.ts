@@ -171,6 +171,7 @@ export function buildGridPreview(
     },
     metricOrigin: [gridMinX, gridMinY] as [number, number],
     metricCellSize: cellSize,
+    metricTransform,
   };
 }
 

@@ -12,10 +12,12 @@ import type {
 import {
   buildPreviewRgba,
   calculatePreviewDimensions,
+  countExtraSamples,
   createPreviewDataUrl,
   extractInterleavedBand,
   getSampleRanges,
   isValidRasterSample,
+  resolveDataBandCount,
 } from './rasterPreview';
 
 const MAX_VALIDITY_MASK_SIZE = 256;
@@ -437,7 +439,13 @@ export async function loadRasterPreview(
   const image = await session.getImage();
   const noDataValue = normalizeNoDataValue(image.getGDALNoData?.() ?? image.fileDirectory?.GDAL_NODATA);
   const previewSize = calculatePreviewDimensions(image.getWidth(), image.getHeight());
-  const bandCount = Math.min(3, Math.max(1, image.getSamplesPerPixel()));
+  const samplesPerPixel = image.getSamplesPerPixel();
+  // 导出文件会在末尾追加处方波段（并以 ExtraSamples 声明），分类判定要把它排除
+  const classificationBandCount = resolveDataBandCount(
+    samplesPerPixel,
+    countExtraSamples(image.getFileDirectory?.()),
+  );
+  const bandCount = Math.min(3, Math.max(1, samplesPerPixel));
   const samples = await image.readRasters({
     width: previewSize.width,
     height: previewSize.height,
@@ -463,6 +471,7 @@ export async function loadRasterPreview(
     width: previewSize.width,
     height: previewSize.height,
     sampleBandCount: bandCount,
+    classificationBandCount,
     sampleData: Float32Array.from(samples as ArrayLike<number>),
     sampleRanges: getSampleRanges(samples as ArrayLike<number>, bandCount, noDataValue),
     noDataValue,

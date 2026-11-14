@@ -1,12 +1,26 @@
+# 依赖与构建产物
 node_modules/
 dist/
-.DS_Store
 coverage/
-*.log
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
+
+# 包管理器
+# .pnpm-store 是本地缓存目录，不应入库
 package-lock.json
-.worktrees/
-.ace-tool/
+.pnpm-store/
+
+# 本地数据与工作副本
 data/
+.worktrees/
+
+# 工具与调试产物
+.ace-tool/
+.sisyphus/
+.tmp-shots/
+vite.config.local.ts
+
+# 编辑器与系统
+.DS_Store
+*.log

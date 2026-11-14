@@ -41,7 +41,16 @@ export type RasterClassificationRule = {
   max: number | null;
   color: string;
   label: string;
+  /**
+   * 施用量数值。其含义由 `applicationRateBasis` 决定：
+   * - `per-cell`（默认）：单个网格单元的总量；
+   * - `per-area`：单位面积用量，单位见 `applicationRateUnit`。
+   */
   applicationRate?: number | null;
+  /** 用量基准；缺省按 `per-cell` 处理，保持历史行为 */
+  applicationRateBasis?: 'per-cell' | 'per-area';
+  /** 单位面积用量的单位；缺省按 `per-hectare` 处理 */
+  applicationRateUnit?: 'per-square-meter' | 'per-hectare' | 'per-mu';
 };
 
 type RasterClassificationLayerBase = {
@@ -84,6 +93,11 @@ export type RasterPreview = {
   width: number;
   height: number;
   sampleBandCount?: number;
+  /**
+   * 承载影像数据的波段数（已扣除尾部附加波段，如本工具写入的处方波段）。
+   * 等于 1 时才按主波段做分类着色；缺省时退回 sampleBandCount。
+   */
+  classificationBandCount?: number;
   sampleData?: Float32Array;
   sampleRanges?: Array<RasterValueRange | null>;
   noDataValue?: number | null;
@@ -229,6 +243,7 @@ export type RasterWorkerResponse =
         width: number;
         height: number;
         sampleBandCount: number;
+        classificationBandCount: number;
         sampleData: Float32Array;
         sampleRanges: Array<RasterValueRange | null>;
         noDataValue: number | null;

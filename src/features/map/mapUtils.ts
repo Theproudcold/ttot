@@ -227,7 +227,9 @@ export function scheduleAnimationFrame(callback: FrameRequestCallback): number {
     return requestAnimationFrame(callback);
   }
 
-  return globalThis.setTimeout(() => callback(Date.now()), 16);
+  // 非浏览器环境（如 jsdom/Node）回退到定时器。运行期返回的是数字句柄，
+  // 但 Node 的 setTimeout 在类型上返回 Timeout 对象，因此这里显式归一为 number。
+  return globalThis.setTimeout(() => callback(Date.now()), 16) as unknown as number;
 }
 
 /**
@@ -318,6 +320,22 @@ export function getGridCellStyleColors(
         visibleClassificationLayer ?? useMapUiStore.getState().classificationLayers[0],
       )?.color ?? 'rgba(17, 17, 17, 0.18)',
   };
+}
+
+/**
+ * 判断当前预览是否可按主波段执行"单波段分类着色"。
+ *
+ * 不能直接用 sampleBandCount：rules 模式导出的文件带有追加的处方波段，
+ * 它的样本数是 2，但参与分类的数据波段只有 1 个（classificationBandCount）。
+ */
+export function canClassifySingleBand(
+  preview: { sampleBandCount?: number; classificationBandCount?: number } | null | undefined,
+): boolean {
+  if (!preview) {
+    return false;
+  }
+
+  return (preview.classificationBandCount ?? preview.sampleBandCount ?? 0) === 1;
 }
 
 /**

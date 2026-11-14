@@ -50,6 +50,17 @@ type MapUiState = {
   setActiveClassificationLayer: (layerId: string) => void;
   setVisibleClassificationLayer: (layerId: string) => void;
   toggleClassificationLayerVisibility: (layerId: string) => void;
+  /**
+   * 原子还原 UI 状态（用于工程还原）。
+   * 传入空分类方案时保留当前方案，避免把界面还原成「没有方案」的非法状态。
+   */
+  restoreUiState: (input: {
+    layers?: LayerVisibilityState;
+    classificationLayers?: ClassificationLayerState[];
+    activeClassificationLayerId?: string | null;
+    visibleClassificationLayerId?: string | null;
+    gridRenderSettings?: GridRenderSettings;
+  }) => void;
   reset: () => void;
 };
 
@@ -528,5 +539,26 @@ export const useMapUiStore = create<MapUiState>((set) => ({
       hoverInfo: null,
       rasterRenderSettings: INITIAL_RASTER_RENDER_SETTINGS,
       gridRenderSettings: INITIAL_GRID_RENDER_SETTINGS,
+    }),
+  restoreUiState: (input) =>
+    set((state) => {
+      const classificationLayers =
+        input.classificationLayers && input.classificationLayers.length > 0
+          ? input.classificationLayers
+          : state.classificationLayers;
+
+      return {
+        layers: input.layers ?? state.layers,
+        classificationLayers,
+        activeClassificationLayerId: getActiveClassificationLayerId(
+          classificationLayers,
+          input.activeClassificationLayerId ?? null,
+        ),
+        visibleClassificationLayerId: getVisibleClassificationLayerId(
+          classificationLayers,
+          input.visibleClassificationLayerId ?? null,
+        ),
+        gridRenderSettings: input.gridRenderSettings ?? state.gridRenderSettings,
+      };
     }),
 }));

@@ -1,6 +1,12 @@
 import { fromArrayBuffer } from 'geotiff';
 import { describe, expect, it } from 'vitest';
 
+import {
+  EMBEDDED_SNAPSHOT_PREFIX,
+  decodeEmbeddedSnapshot,
+  encodeEmbeddedSnapshot,
+  exportProjectSnapshot,
+} from '@/features/project/projectSnapshot';
 import { writeGeoTiffBuffer } from '@/shared/geo/geotiffWriter';
 
 describe('writeGeoTiffBuffer', () => {
@@ -71,5 +77,74 @@ describe('writeGeoTiffBuffer', () => {
       ]),
     );
     expect(Array.from(rasters[1])).toEqual([50, 80, 80, 120]);
+  });
+
+  it('round-trips an embedded project payload through the ImageDescription tag', async () => {
+    const snapshot = exportProjectSnapshot({
+      sourceFile: null,
+      sourceLabel: '未选择文件',
+      metadata: null,
+      fenceRings: [
+        [
+          [0, 0],
+          [2, 0],
+          [2, 2],
+          [0, 2],
+          [0, 0],
+        ],
+      ],
+      grid: { cellSize: 1, rotation: 0, aggregationMode: 'mean' },
+      classification: {
+        layers: [
+          {
+            id: 'rules-a',
+            label: '规则方案',
+            noDataColor: '#00000000',
+            visible: true,
+            mode: 'rules',
+            gradientStops: [],
+            rules: [{ min: 0, max: null, color: '#226622', label: '高值', applicationRate: 12.5 }],
+          },
+        ],
+        activeLayerId: 'rules-a',
+        visibleLayerId: 'rules-a',
+      },
+      view: {
+        layers: { raster: true, fence: true, grid: true },
+        gridRenderSettings: {
+          useClassificationColors: true,
+          fillColor: '#3388ff',
+          fillOpacity: 0.3,
+          strokeColor: '#3388ff',
+          strokeOpacity: 0.8,
+          strokeWidth: 1,
+        },
+      },
+    });
+
+    const buffer = writeGeoTiffBuffer({
+      width: 1,
+      height: 1,
+      bands: [new Float32Array([1])],
+      bitsPerSample: [32],
+      sampleFormat: [3],
+      samplesPerPixel: 1,
+      photometricInterpretation: 1,
+      modelPixelScale: [1, 1, 0],
+      modelTiepoint: [0, 0, 0, 0, 0, 0],
+      gdalNoData: '-9999',
+      imageDescription: encodeEmbeddedSnapshot(snapshot),
+    });
+
+    const image = await (await fromArrayBuffer(buffer)).getImage();
+    const raw = image.getFileDirectory().ImageDescription as string;
+
+    // geotiff.js 会把 ASCII tag 的尾部 NUL 一并返回，解码侧必须能容忍
+    expect(raw.startsWith(EMBEDDED_SNAPSHOT_PREFIX)).toBe(true);
+
+    const decoded = decodeEmbeddedSnapshot(raw);
+    expect(decoded?.ok).toBe(true);
+    if (!decoded || !decoded.ok) return;
+    expect(decoded.snapshot).toEqual(snapshot);
   });
 });

@@ -194,10 +194,17 @@ export function getPixelWindowFromFenceBoundingBox(input: {
   const safeResolutionX = resolutionX || Number.EPSILON;
   const safeResolutionY = resolutionY || -Number.EPSILON;
 
-  const startCol = clamp(Math.floor((minX - originX) / safeResolutionX), 0, rasterWidth - 1);
-  const endCol = clamp(Math.ceil((maxX - originX) / safeResolutionX), 1, rasterWidth);
-  const startRow = clamp(Math.floor((maxY - originY) / safeResolutionY), 0, rasterHeight - 1);
-  const endRow = clamp(Math.ceil((minY - originY) / safeResolutionY), 1, rasterHeight);
+  // 行列增长方向由 resolution 的符号决定（常见为 north-up，即 resolutionY < 0）。
+  // 先算出边界对应的两端坐标再排序，避免对 south-up 栅格推导出退化的窗口。
+  const colA = (minX - originX) / safeResolutionX;
+  const colB = (maxX - originX) / safeResolutionX;
+  const rowA = (maxY - originY) / safeResolutionY;
+  const rowB = (minY - originY) / safeResolutionY;
+
+  const startCol = clamp(Math.floor(Math.min(colA, colB)), 0, rasterWidth - 1);
+  const endCol = clamp(Math.ceil(Math.max(colA, colB)), 1, rasterWidth);
+  const startRow = clamp(Math.floor(Math.min(rowA, rowB)), 0, rasterHeight - 1);
+  const endRow = clamp(Math.ceil(Math.max(rowA, rowB)), 1, rasterHeight);
 
   return [Math.min(startCol, endCol - 1), Math.min(startRow, endRow - 1), endCol, endRow];
 }
@@ -374,11 +381,21 @@ export function applyGridAggregationToFenceWindowBands(input: {
   gridCellWidth: number;
   gridCellHeight: number;
   sourceNoDataValue: number | null;
-  noDataValue: number;
+  noDataValue?: number;
+  /**
+   * 在聚合结果可用后再决定 NoData 哨兵，提供时覆盖 noDataValue。
+   * 用于避免哨兵与某个网格的聚合值碰撞（否则该网格在回读时会被当成 NoData 丢弃）。
+   */
+  resolveNoDataValue?: (aggregation: GridAggregationResult) => number;
   metricTransform?: MetricTransform;
   aggregationMode?: GridAggregationMode;
   rotationDeg?: number;
-}): { aggregation: GridAggregationResult; bands: Float64Array[]; maskedPixelCount: number } {
+}): {
+  aggregation: GridAggregationResult;
+  bands: Float64Array[];
+  maskedPixelCount: number;
+  noDataValue: number;
+} {
   const {
     bands,
     window,
@@ -391,6 +408,7 @@ export function applyGridAggregationToFenceWindowBands(input: {
     gridCellHeight,
     sourceNoDataValue,
     noDataValue,
+    resolveNoDataValue,
     metricTransform,
     aggregationMode,
     rotationDeg,
@@ -410,6 +428,16 @@ export function applyGridAggregationToFenceWindowBands(input: {
     aggregationMode,
     rotationDeg,
   });
+
+  let resolvedNoDataValue: number;
+  if (resolveNoDataValue) {
+    resolvedNoDataValue = resolveNoDataValue(aggregation);
+  } else if (noDataValue !== undefined) {
+    resolvedNoDataValue = noDataValue;
+  } else {
+    throw new Error('导出需要 noDataValue 或 resolveNoDataValue 之一');
+  }
+
   const rewritten = applyGridAggregationToBands({
     bands,
     aggregation,
@@ -421,7 +449,7 @@ export function applyGridAggregationToFenceWindowBands(input: {
     fenceRings,
     gridCellWidth,
     gridCellHeight,
-    noDataValue,
+    noDataValue: resolvedNoDataValue,
     metricTransform,
     rotationDeg,
   });
@@ -430,6 +458,7 @@ export function applyGridAggregationToFenceWindowBands(input: {
     aggregation,
     bands: rewritten.bands,
     maskedPixelCount: rewritten.maskedPixelCount,
+    noDataValue: resolvedNoDataValue,
   };
 }
 
@@ -576,20 +605,44 @@ export function pickExportNoDataValue(input: {
   sampleFormat: number[];
   bitsPerSample: number[];
   bands: SupportedRasterArray[];
+  /** 不可被选作 NoData 的数值（例如已算出的网格聚合值） */
+  reservedValues?: readonly number[];
 }): number {
-  const { sourceNoDataValue, sampleFormat, bitsPerSample, bands } = input;
+  const { sourceNoDataValue, sampleFormat, bitsPerSample, bands, reservedValues } = input;
+  const reserved = new Set(reservedValues ?? []);
 
-  if (sourceNoDataValue !== null && Number.isFinite(sourceNoDataValue)) {
+  // 源 NoData 优先复用，但它可能与某个网格的聚合值相同——那样该网格会被误判为无值
+  if (
+    sourceNoDataValue !== null &&
+    Number.isFinite(sourceNoDataValue) &&
+    !reserved.has(sourceNoDataValue)
+  ) {
     return sourceNoDataValue;
   }
 
   const candidates = getNoDataCandidates(sampleFormat[0] ?? 1, bitsPerSample[0] ?? 8);
 
   for (const candidate of candidates) {
-    if (!hasValueInBands(bands, candidate)) {
+    if (!reserved.has(candidate) && !hasValueInBands(bands, candidate)) {
       return candidate;
     }
   }
 
   return candidates[0] ?? -9999;
+}
+
+/**
+ * 收集聚合结果中所有有效的输出值。
+ * 供 NoData 哨兵避让使用：哨兵不能等于任何一个真实的聚合值。
+ */
+export function collectAggregationOutputValues(aggregation: GridAggregationResult): number[] {
+  const values: number[] = [];
+
+  for (const cell of Object.values(aggregation.cellsById)) {
+    if (cell.outputValue !== null && Number.isFinite(cell.outputValue)) {
+      values.push(cell.outputValue);
+    }
+  }
+
+  return values;
 }

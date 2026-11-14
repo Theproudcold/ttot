@@ -1,3 +1,4 @@
+import type { MetricTransform } from '@/shared/geo/crs';
 import type { FenceRings } from '@/shared/types/fence';
 
 export type GridAggregationMode = 'mean' | 'max' | 'min';
@@ -41,6 +42,11 @@ export type GridPreview = {
   summary: GridSummary;
   metricOrigin: [number, number];
   metricCellSize: number;
+  /**
+   * 生成该预览时实际使用的度量变换。
+   * 调用方（网格命中查找、聚合注入）必须复用同一个变换，否则网格定位会与预览不一致。
+   */
+  metricTransform?: MetricTransform | null;
 };
 
 export type GridAggregationResult = {

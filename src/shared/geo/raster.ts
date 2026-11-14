@@ -24,10 +24,12 @@ export {
 
 export {
   calculatePreviewDimensions,
+  countExtraSamples,
   getSampleRanges,
   extractInterleavedBand,
   buildPreviewRgba,
   createPreviewDataUrl,
+  resolveDataBandCount,
 } from './rasterPreview';
 
 export {

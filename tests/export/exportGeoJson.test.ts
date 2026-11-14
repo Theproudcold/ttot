@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createFenceGeoJson, createGridGeoJson } from '@/features/export/exportGeoJson';
 import type { FenceFeature } from '@/shared/types/fence';
 import type { GridCell, GridSummary } from '@/shared/types/grid';
+import type { RasterRuleClassificationLayer } from '@/shared/types/raster';
 
 const fence: FenceFeature = {
   geometry: {
@@ -97,5 +98,82 @@ describe('createGridGeoJson', () => {
       centerY: 2.5,
       cellSize: 5,
     });
+  });
+});
+
+function withAggregation(cells: GridCell[], outputValue: number): GridCell[] {
+  return cells.map((cell) => ({
+    ...cell,
+    aggregation: {
+      cellId: cell.id,
+      row: cell.row,
+      col: cell.col,
+      pixelCount: 4,
+      validPixelCount: 4,
+      sumValue: outputValue * 4,
+      meanValue: outputValue,
+      minValue: outputValue,
+      maxValue: outputValue,
+      outputValue,
+    },
+  }));
+}
+
+// gridSummary.cellSize = 5 → 单元格面积 25 m²
+const perCellRulesLayer: RasterRuleClassificationLayer = {
+  id: 'per-cell',
+  label: '单格用量',
+  mode: 'rules',
+  noDataColor: '#00000000',
+  gradientStops: [],
+  rules: [{ min: 0, max: null, color: '#226622', label: '高值', applicationRate: 30 }],
+};
+
+const perAreaRulesLayer: RasterRuleClassificationLayer = {
+  ...perCellRulesLayer,
+  id: 'per-area',
+  label: '单位面积用量',
+  rules: [
+    {
+      min: 0,
+      max: null,
+      color: '#226622',
+      label: '高值',
+      applicationRate: 4,
+      applicationRateBasis: 'per-area',
+      applicationRateUnit: 'per-hectare',
+    },
+  ],
+};
+
+describe('createGridGeoJson with classification rules', () => {
+  it('keeps the historical per-cell amount unchanged', () => {
+    const result = createGridGeoJson(withAggregation(gridCells, 0.5), gridSummary, perCellRulesLayer);
+
+    expect(result.features[0].properties.fertilizerAmount).toBe(30);
+    // 按格计量时原始速率与结果相同，无需额外记录
+    expect(result.features[0].properties.applicationRate).toBeUndefined();
+  });
+
+  it('derives the per-cell amount for per-area rules and records the basis', () => {
+    // 4 kg/ha × 25 m² ÷ 10000 m² = 0.01
+    const result = createGridGeoJson(withAggregation(gridCells, 0.5), gridSummary, perAreaRulesLayer);
+    const properties = result.features[0].properties;
+
+    expect(properties.fertilizerAmount).toBe(0.01);
+    expect(properties.applicationRate).toBe(4);
+    expect(properties.applicationRateUnit).toBe('per-hectare');
+    expect(properties.cellAreaM2).toBe(25);
+  });
+
+  it('omits fertilizerAmount when no rule matches the aggregated value', () => {
+    const noMatchLayer: RasterRuleClassificationLayer = {
+      ...perCellRulesLayer,
+      rules: [{ min: 10, max: 20, color: '#226622', label: '区间外', applicationRate: 30 }],
+    };
+    const result = createGridGeoJson(withAggregation(gridCells, 0.5), gridSummary, noMatchLayer);
+
+    expect(result.features[0].properties.aggregationValue).toBe(0.5);
+    expect(result.features[0].properties.fertilizerAmount).toBeUndefined();
   });
 });

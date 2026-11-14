@@ -185,6 +185,7 @@ export function useRasterLoader(options?: RasterLoaderOptions) {
         width: response.result.width,
         height: response.result.height,
         sampleBandCount: response.result.sampleBandCount,
+        classificationBandCount: response.result.classificationBandCount,
         sampleData: response.result.sampleData,
         sampleRanges: response.result.sampleRanges,
         noDataValue: response.result.noDataValue,

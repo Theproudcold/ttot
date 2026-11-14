@@ -24,6 +24,12 @@ type GridState = {
   setAggregationMode: (mode: GridAggregationMode) => void;
   setSummary: (summary: GridSummary | null) => void;
   setPreview: (cells: GridCell[], summary: GridSummary | null, origin?: GridOrigin | null) => void;
+  /** 原子还原网格参数，避免多次 set 触发多轮网格重算 */
+  restoreGrid: (grid: {
+    cellSize: number;
+    rotation: number;
+    aggregationMode: GridAggregationMode;
+  }) => void;
   reset: () => void;
 };
 
@@ -49,5 +55,7 @@ export const useGridStore = create<GridState>((set) => ({
   setAggregationMode: (aggregationMode) => set({ aggregationMode }),
   setSummary: (summary) => set({ summary }),
   setPreview: (cells, summary, origin) => set({ cells, summary, origin: origin ?? null }),
+  restoreGrid: ({ cellSize, rotation, aggregationMode }) =>
+    set({ cellSize, rotation, aggregationMode }),
   reset: () => set(INITIAL_STATE),
 }));

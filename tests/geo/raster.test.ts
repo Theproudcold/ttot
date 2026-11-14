@@ -425,6 +425,8 @@ describe('loadRasterPreview', () => {
     });
     expect(preview.url).toBe('data:image/png;base64,preview');
     expect(preview.sampleBandCount).toBe(2);
+    // 未声明 ExtraSamples：两个波段都视为数据波段
+    expect(preview.classificationBandCount).toBe(2);
     expect(Array.from(preview.sampleData ?? [])).toEqual(
       expect.arrayContaining([
         expect.closeTo(0.1, 6),
@@ -452,6 +454,39 @@ describe('loadRasterPreview', () => {
         255, 255, 255, 255,
       ]),
     );
+  });
+
+  it('excludes a trailing prescription band (ExtraSamples) from the classification band count', async () => {
+    const readRasters = vi.fn().mockResolvedValue(
+      Float32Array.from([
+        0.1, 50,
+        0.35, 80,
+        0.55, 80,
+        0.8, 120,
+      ]),
+    );
+    fromArrayBufferMock.mockResolvedValue({
+      getImage: vi.fn().mockResolvedValue({
+        getWidth: () => 2,
+        getHeight: () => 2,
+        getSamplesPerPixel: () => 2,
+        getGDALNoData: () => null,
+        // 本工具 rules 模式导出时会写 ExtraSamples 声明追加的处方波段
+        getFileDirectory: () => ({ ExtraSamples: [0] }),
+        readRasters,
+      }),
+    });
+
+    const file = Object.assign(new Blob(['fake'], { type: 'image/tiff' }), {
+      name: 'exported-prescription.tif',
+      arrayBuffer: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]).buffer),
+    }) as unknown as File;
+
+    const preview = await loadRasterPreview(file);
+
+    expect(preview.sampleBandCount).toBe(2);
+    // 关键：数据波段只有 1 个，重新导入导出文件时分类着色才不会被门限挡掉
+    expect(preview.classificationBandCount).toBe(1);
   });
 
   it('reuses the same decoded GeoTIFF session across metadata, preview, validity and fence-window reads', async () => {

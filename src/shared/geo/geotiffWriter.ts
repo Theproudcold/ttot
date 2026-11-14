@@ -22,6 +22,11 @@ type GeoTiffWriteOptions = {
   geoAsciiParams?: string;
   geoDoubleParams?: number[] | Float64Array;
   gdalNoData?: string | null;
+  /**
+   * 写入 ImageDescription（tag 270，ASCII）。
+   * 本工具用它内嵌工程配方；注意会覆盖源文件的同名 tag。
+   */
+  imageDescription?: string;
 };
 
 type TiffFieldType = 2 | 3 | 4 | 12;
@@ -258,6 +263,7 @@ export function writeGeoTiffBuffer(options: GeoTiffWriteOptions): ArrayBuffer {
     geoAsciiParams,
     geoDoubleParams,
     gdalNoData,
+    imageDescription,
   } = options;
 
   if (bands.length !== samplesPerPixel) {
@@ -301,6 +307,10 @@ export function writeGeoTiffBuffer(options: GeoTiffWriteOptions): ArrayBuffer {
 
   if (gdalNoData && gdalNoData.length > 0) {
     tags.push(createAsciiTag(42113, gdalNoData));
+  }
+
+  if (imageDescription && imageDescription.length > 0) {
+    tags.push(createAsciiTag(270, imageDescription));
   }
 
   tags.sort((left, right) => left.tag - right.tag);

@@ -47,6 +47,7 @@ import type { GridLookup } from '@/shared/geo/gridLookup';
 
 import {
   type DeferredMapResizeTarget,
+  canClassifySingleBand,
   createAnimationFrameValueScheduler,
   getGridCellStyleColors,
   getPixelPosition,
@@ -312,7 +313,7 @@ export function useMap(metadata: RasterMetadata | null) {
       const hitGridCell = findCellAtCoordinate(coordinate, gridLookupRef.current);
       const visibleClassificationLayer = visibleClassificationLayerRef.current;
       const classificationMatch =
-        currentPreview.sampleBandCount === 1 && visibleClassificationLayer
+        canClassifySingleBand(currentPreview) && visibleClassificationLayer
           ? findRasterClassificationMatch(
               primarySampleValue ?? Number.NaN,
               visibleClassificationLayer,
@@ -462,7 +463,7 @@ export function useMap(metadata: RasterMetadata | null) {
         );
 
       if (
-        preview.sampleBandCount === 1 &&
+        canClassifySingleBand(preview) &&
         previewSampleData &&
         visibleClassificationLayer &&
         workerRef.current
@@ -522,7 +523,7 @@ export function useMap(metadata: RasterMetadata | null) {
           styledPreviewUrl = computeStyledPreviewUrlSync();
         }
       } else if (
-        preview.sampleBandCount === 1 &&
+        canClassifySingleBand(preview) &&
         previewSampleData &&
         visibleClassificationLayer
       ) {
@@ -1097,6 +1098,7 @@ export function scheduleMapResizeFrame(
  * 以下工具函数已迁移至 mapUtils.ts，此处重新导出以保持原有导入路径兼容。
  */
 export {
+  canClassifySingleBand,
   createAnimationFrameValueScheduler,
   getGridCellStyleColors,
   getPixelPosition,

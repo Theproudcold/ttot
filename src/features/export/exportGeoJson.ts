@@ -33,6 +33,11 @@ export function createFenceGeoJson(fence: FenceFeature): GeoJsonFeatureCollectio
 }
 
 import type { RasterClassificationLayer, RasterRuleClassificationLayer } from '@/shared/types/raster';
+import {
+  normalizeApplicationRateBasis,
+  normalizeApplicationRateUnit,
+  resolveCellAmount,
+} from '@/shared/geo/applicationRate';
 
 export function createGridGeoJson(
   cells: GridCell[],
@@ -41,6 +46,7 @@ export function createGridGeoJson(
 ): GeoJsonFeatureCollection {
   const isRulesMode = activeLayer?.mode === 'rules';
   const rules = isRulesMode ? (activeLayer as RasterRuleClassificationLayer).rules : [];
+  const cellAreaM2 = summary.cellSize > 0 ? summary.cellSize * summary.cellSize : 0;
 
   return {
     type: 'FeatureCollection',
@@ -60,8 +66,17 @@ export function createGridGeoJson(
         if (rules.length > 0) {
            for (const rule of rules) {
              if (cell.aggregation.outputValue >= rule.min && (rule.max == null || cell.aggregation.outputValue <= rule.max)) {
-                if (rule.applicationRate != null) {
-                  properties.fertilizerAmount = rule.applicationRate;
+                // fertilizerAmount 始终是"该网格单元的用量"，下游口径不变；
+                // 只有按面积计量的规则才额外记录原始速率与单位以便追溯。
+                const cellAmount = resolveCellAmount(rule, cellAreaM2);
+                if (cellAmount !== null) {
+                  properties.fertilizerAmount = cellAmount;
+
+                  if (normalizeApplicationRateBasis(rule.applicationRateBasis) === 'per-area') {
+                    properties.applicationRate = rule.applicationRate ?? null;
+                    properties.applicationRateUnit = normalizeApplicationRateUnit(rule.applicationRateUnit);
+                    properties.cellAreaM2 = cellAreaM2;
+                  }
                 }
                 break;
              }

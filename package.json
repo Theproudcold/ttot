@@ -2,6 +2,17 @@
   "name": "ttot",
   "private": true,
   "version": "0.1.0",
+  "description": "浏览器内的 GeoTIFF 围栏网格与处方图工具：绘制围栏、生成网格、聚合像元，导出 GeoJSON 与带处方波段的裁剪 GeoTIFF。",
+  "license": "MIT",
+  "keywords": [
+    "geotiff",
+    "precision-agriculture",
+    "prescription-map",
+    "variable-rate",
+    "openlayers",
+    "react",
+    "vite"
+  ],
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -21,6 +32,7 @@
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
+    "@types/node": "^22.20.5",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
     "@vitejs/plugin-react": "^4.4.1",
