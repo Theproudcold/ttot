@@ -24,7 +24,7 @@ const MAX_VALIDITY_MASK_SIZE = 256;
 const LOCAL_READ_START_PROGRESS = 5;
 
 type RasterSource = File | string;
-type RasterImageHandle = Awaited<ReturnType<Awaited<ReturnType<typeof fromArrayBuffer>>['getImage']>>;
+export type RasterImageHandle = Awaited<ReturnType<Awaited<ReturnType<typeof fromArrayBuffer>>['getImage']>>;
 
 export type RasterSession = {
   source: RasterSource;
@@ -350,7 +350,11 @@ function createRasterSession(source: RasterSource): RasterSession {
  * 同一份影像会被完整读取并解析多次（预览一次、有效掩膜再一次）。
  * 用一个由 名称+大小+修改时间 组成的字符串作为键，才能跨请求复用同一个会话。
  */
-export function buildRasterSourceKey(source: Blob): string {
+export function buildRasterSourceKey(source: Blob | string): string {
+  if (typeof source === 'string') {
+    return source;
+  }
+
   const named = source as Blob & { name?: string; lastModified?: number };
   const name = typeof named.name === 'string' ? named.name : '';
   const lastModified = typeof named.lastModified === 'number' ? named.lastModified : 0;
@@ -419,7 +423,7 @@ export async function loadRasterMetadata(
 ): Promise<RasterMetadata> {
   const isUrlSource = typeof source === 'string';
   const fileName = isUrlSource ? source.split('/').pop() || 'unknown.tif' : source.name;
-  const session = openRasterSession(source);
+  const session = openRasterSession(source, { cacheKey: buildRasterSourceKey(source) });
 
   onProgress?.(0, isUrlSource ? '正在下载影像' : '正在读取本地文件');
   const image = isUrlSource
@@ -463,7 +467,7 @@ export async function loadRasterPreview(
   onProgress?: (progress: number | null, phase: string) => void,
   options: { maxEdge?: number; cacheKey?: string } = {},
 ): Promise<RasterPreview> {
-  const session = openRasterSession(source, { cacheKey: options.cacheKey });
+  const session = openRasterSession(source, { cacheKey: options.cacheKey ?? buildRasterSourceKey(source) });
   onProgress?.(5, '正在生成预览');
   await session.getArrayBuffer(
     typeof source === 'string'
@@ -527,7 +531,7 @@ export async function loadRasterValidityMask(
   onProgress?: (progress: number | null, phase: string) => void,
 ): Promise<RasterValidityMask> {
   onProgress?.(0, '正在提取有效区域');
-  const image = await openRasterSession(source).getImage();
+  const image = await openRasterSession(source, { cacheKey: buildRasterSourceKey(source) }).getImage();
 
   onProgress?.(45, '正在抽样有效像元');
   const validityMask = await buildRasterValidityMask(image);

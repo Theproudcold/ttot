@@ -243,6 +243,23 @@ export type RasterWorkerRequest =
         /** 内容指纹：与预览请求共用同一个会话，避免重复读取整幅影像 */
         sourceKey?: string;
       };
+    }
+  | {
+      id: string;
+      type: 'export-geotiff';
+      payload: {
+        source: File;
+        /** 内容指纹：与网格聚合共用解析会话与已解码的窗口 */
+        sourceKey?: string;
+        fenceRings: import('@/shared/types/fence').FenceRings;
+        gridCellSize: number;
+        aggregationMode?: import('@/shared/types/grid').GridAggregationMode;
+        filename?: string;
+        activeClassificationLayer?: RasterClassificationLayer | null;
+        metricTransformDescriptor: MetricTransformDescriptor | null;
+        rotationDeg?: number;
+        projectSnapshot?: import('@/features/project/projectSnapshot').ProjectSnapshotV1 | null;
+      };
     };
 
 export type RasterWorkerResponse =
@@ -278,6 +295,15 @@ export type RasterWorkerResponse =
       id: string;
       type: 'load-validity-mask';
       result: RasterValidityMask;
+    }
+  | {
+      id: string;
+      type: 'export-geotiff';
+      result: {
+        bytes: ArrayBuffer;
+        filename: string;
+        warnings: string[];
+      };
     }
   | {
       id: string;

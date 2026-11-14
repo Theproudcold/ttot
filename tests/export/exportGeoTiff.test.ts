@@ -12,6 +12,8 @@ vi.mock('geotiff', () => ({
 
 vi.mock('@/shared/geo/raster', () => ({
   readBlobBuffer: readBlobBufferMock,
+  buildRasterSourceKey: (file: Blob & { name?: string; lastModified?: number }) =>
+    `${file.name ?? ''}:${file.size}:${file.lastModified ?? 0}`,
   openRasterSession: (source: File) => ({
     source,
     getArrayBuffer: async () => await readBlobBufferMock(source),

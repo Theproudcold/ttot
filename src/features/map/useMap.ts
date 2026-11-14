@@ -33,6 +33,7 @@ import { buildGridAggregationFromFenceWindowAsync } from '@/shared/geo/geotiffEx
 import { readFenceWindowWithCache } from '@/shared/geo/fenceWindow';
 import { buildGridPreview } from '@/shared/geo/grid';
 import { buildAggregateGridPayload } from '@/shared/workers/rasterWorkerRequests';
+import { registerRasterWorker, unregisterRasterWorker } from '@/shared/workers/rasterWorkerRegistry';
 import {
   buildRasterClassificationPreviewRgba,
   buildRasterSourceKey,
@@ -128,8 +129,10 @@ export function useMap(metadata: RasterMetadata | null) {
       debugLog('map', 'Worker 全局错误', error);
     };
     workerRef.current = worker;
+    registerRasterWorker('map', worker);
 
     return () => {
+      unregisterRasterWorker('map', worker);
       worker.terminate();
       workerRef.current = null;
     };

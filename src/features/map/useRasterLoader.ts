@@ -13,6 +13,7 @@ import {
   loadRasterValidityMask,
 } from '@/shared/geo/raster';
 import { createPreviewDataUrl } from '@/shared/geo/rasterPreview';
+import { registerRasterWorker, unregisterRasterWorker } from '@/shared/workers/rasterWorkerRegistry';
 import type { RasterPreview, RasterWorkerRequest, RasterWorkerResponse } from '@/shared/types/raster';
 
 import { useRasterStore } from './rasterStore';
@@ -91,7 +92,9 @@ export function useRasterLoader(options?: RasterLoaderOptions) {
       debugLog('loader', 'Worker 全局错误', error);
     };
     workerRef.current = worker;
+    registerRasterWorker('loader', worker);
     return () => {
+      unregisterRasterWorker('loader', worker);
       worker.terminate();
       workerRef.current = null;
     };

@@ -10,8 +10,15 @@ import { countExtraSamples } from '@/shared/geo/rasterPreview';
 import { resolveCellAmount } from '@/shared/geo/applicationRate';
 import { EXPORT_RULE_SEMANTICS, findRuleMatch } from '@/shared/geo/classificationRuleMatching';
 import { encodeEmbeddedSnapshot, type ProjectSnapshotV1 } from '@/features/project/projectSnapshot';
+import { debugLog } from '@/features/map/debugLogger';
+import { buildExportGeoTiffPayload } from '@/shared/workers/rasterWorkerRequests';
+import {
+  createRasterWorkerJobId,
+  getRasterWorker,
+  requestRasterWorker,
+} from '@/shared/workers/rasterWorkerRegistry';
 import type { MetricTransform } from '@/shared/geo/crs';
-import type { FenceFeature } from '@/shared/types/fence';
+import type { FenceFeature, FenceRings } from '@/shared/types/fence';
 import type {
   RasterClassificationLayer,
   RasterRuleClassificationLayer,
@@ -68,7 +75,7 @@ function toFloat32Band(band: SupportedRasterArray): Float32Array {
 
 import type { GridAggregationMode } from '@/shared/types/grid';
 
-export async function exportFenceGeoTiff(input: {
+export type GeoTiffExportInput = {
   file: File;
   fence: FenceFeature;
   gridCellSize: number;
@@ -82,11 +89,29 @@ export async function exportFenceGeoTiff(input: {
    * 提供后写入 ImageDescription（tag 270），使该文件被重新导入时可还原设置。
    */
   projectSnapshot?: ProjectSnapshotV1 | null;
-}): Promise<{ blob: Blob; filename: string; warnings: string[] }> {
-  const { file, fence, gridCellSize, aggregationMode, filename, activeClassificationLayer, metricTransform, rotationDeg, projectSnapshot } = input;
+};
+
+/** 纯计算入参：只带围栏环，不依赖 FenceFeature 结构 */
+export type GeoTiffExportBytesInput = Omit<GeoTiffExportInput, 'fence'> & {
+  fenceRings: FenceRings;
+};
+
+export type GeoTiffExportResult = {
+  bytes: ArrayBuffer;
+  filename: string;
+  warnings: string[];
+};
+
+/**
+ * 生成 GeoTIFF 字节。不接触 DOM，因此既能在 Worker 内执行，也能作为主线程回退。
+ */
+export async function buildGeoTiffExportBytes(
+  input: GeoTiffExportBytesInput,
+): Promise<GeoTiffExportResult> {
+  const { file, fenceRings, gridCellSize, aggregationMode, filename, activeClassificationLayer, metricTransform, rotationDeg, projectSnapshot } = input;
   const fenceWindow = await readGeoTiffFenceWindow({
     file,
-    fenceRings: fence.geometry.coordinates,
+    fenceRings,
   });
   const {
     bands,
@@ -105,7 +130,7 @@ export async function exportFenceGeoTiff(input: {
     height: clippedHeight,
     origin,
     resolution,
-    fenceRings: fence.geometry.coordinates,
+    fenceRings,
     gridCellWidth: gridCellSize,
     gridCellHeight: gridCellSize,
     sourceNoDataValue,
@@ -223,10 +248,63 @@ export async function exportFenceGeoTiff(input: {
   });
 
   return {
-    blob: new Blob([toBlobPart(encoded)], { type: 'image/tiff' }),
+    bytes: encoded,
     filename: filename ?? buildDefaultExportFilename(file.name),
     warnings: embeddedWarnings,
   };
+}
+
+function toExportResult(result: GeoTiffExportResult): { blob: Blob; filename: string; warnings: string[] } {
+  return {
+    blob: new Blob([toBlobPart(result.bytes)], { type: 'image/tiff' }),
+    filename: result.filename,
+    warnings: result.warnings,
+  };
+}
+
+/**
+ * 导出围栏内的处方 GeoTIFF。
+ *
+ * 计算本身在 Worker 内完成（顺带复用网格聚合已解码的窗口），
+ * Worker 不可用或失败时回退到主线程执行同一份实现。
+ */
+export async function exportFenceGeoTiff(input: GeoTiffExportInput): Promise<{
+  blob: Blob;
+  filename: string;
+  warnings: string[];
+}> {
+  const bytesInput: GeoTiffExportBytesInput = {
+    file: input.file,
+    fenceRings: input.fence.geometry.coordinates,
+    gridCellSize: input.gridCellSize,
+    aggregationMode: input.aggregationMode,
+    filename: input.filename,
+    activeClassificationLayer: input.activeClassificationLayer,
+    metricTransform: input.metricTransform,
+    rotationDeg: input.rotationDeg,
+    projectSnapshot: input.projectSnapshot,
+  };
+  const worker = getRasterWorker();
+
+  if (worker) {
+    try {
+      const response = await requestRasterWorker<'export-geotiff'>(
+        worker,
+        {
+          id: createRasterWorkerJobId(),
+          type: 'export-geotiff',
+          payload: buildExportGeoTiffPayload(bytesInput),
+        },
+        180_000,
+      );
+
+      return toExportResult(response.result);
+    } catch (error) {
+      debugLog('export', 'Worker 导出失败，回退主线程', error);
+    }
+  }
+
+  return toExportResult(await buildGeoTiffExportBytes(bytesInput));
 }
 
 export async function downloadExportedGeoTiff(blob: Blob, filename: string): Promise<void> {

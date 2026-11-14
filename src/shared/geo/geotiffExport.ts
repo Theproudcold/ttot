@@ -1,13 +1,13 @@
 import type { MetricTransform } from '@/shared/geo/crs';
 import { createIdentityMetricTransform } from '@/shared/geo/crs';
+import { readFenceWindowWithCache } from '@/shared/geo/fenceWindow';
 import { getFenceSummary, isPointInFence } from '@/shared/geo/fence';
 import {
   aggregateGridCellsFromRasterWindow,
   aggregateGridCellsFromRasterWindowAsync,
   applyGridAggregationToBands,
 } from '@/shared/geo/gridAggregation';
-import { openRasterSession } from '@/shared/geo/raster';
-import { getPixelWindowFromFenceBoundingBox } from '@/shared/geo/rasterWindow';
+import { buildRasterSourceKey, openRasterSession } from '@/shared/geo/raster';
 import type { FencePosition, FenceRings } from '@/shared/types/fence';
 import type { GridAggregationMode, GridAggregationResult } from '@/shared/types/grid';
 import type {
@@ -33,25 +33,6 @@ export type GeoTiffFenceWindowData = {
   samplesPerPixel: number;
   fileDirectory: Record<string, unknown>;
 };
-
-function normalizeRasterBands(rasters: unknown): SupportedRasterArray[] {
-  if (!Array.isArray(rasters)) {
-    throw new Error('GeoTIFF 栅格窗口读取结果无效');
-  }
-
-  return rasters as SupportedRasterArray[];
-}
-
-function normalizeNoDataValue(value: unknown): number | null {
-  const parsed =
-    typeof value === 'string'
-      ? Number(value)
-      : typeof value === 'number'
-        ? value
-        : null;
-
-  return parsed !== null && Number.isFinite(parsed) ? parsed : null;
-}
 
 function hasValueInBands(bands: SupportedRasterArray[], target: number): boolean {
   return bands.some((band) => {
@@ -134,44 +115,29 @@ export async function readGeoTiffFenceWindow(input: {
   samples?: number[];
 }): Promise<GeoTiffFenceWindowData> {
   const { file, fenceRings, samples } = input;
-  const image = await openRasterSession(file).getImage();
-  const origin = image.getOrigin() as RasterOrigin;
-  const resolution = image.getResolution() as RasterResolution;
-  const window = getPixelWindowFromFenceBoundingBox({
-    bbox: getFenceSummary(fenceRings).bbox,
-    rasterWidth: image.getWidth(),
-    rasterHeight: image.getHeight(),
-    origin,
-    resolution,
-  });
+  const sourceKey = buildRasterSourceKey(file);
+  const image = await openRasterSession(file, { cacheKey: sourceKey }).getImage();
   const sampleIndexes =
     samples && samples.length > 0
       ? samples
       : Array.from({ length: image.getSamplesPerPixel() }, (_, index) => index);
-  const bands = normalizeRasterBands(
-    await image.readRasters({
-      window,
-      interleave: false,
-      samples: sampleIndexes,
-    }),
-  );
-  const fileDirectory = (image.getFileDirectory?.() ?? {}) as Record<string, unknown>;
-  const sourceNoDataValue = normalizeNoDataValue(
-    image.getGDALNoData?.() ?? fileDirectory.GDAL_NODATA ?? null,
-  );
+
+  // 像元部分走共享窗口缓存（同一围栏在网格聚合里已经解码过就不再解码）；
+  // 位深/样本格式等元信息直接从已解析的影像对象读取，不涉及解码。
+  const windowData = await readFenceWindowWithCache({
+    source: file,
+    sourceKey,
+    fenceRings,
+    samples: sampleIndexes,
+    image,
+  });
 
   return {
-    window,
-    width: window[2] - window[0],
-    height: window[3] - window[1],
-    bands,
-    origin,
-    resolution,
-    sourceNoDataValue,
+    ...windowData,
     bitsPerSample: sampleIndexes.map((index) => image.getBitsPerSample(index)),
     sampleFormat: sampleIndexes.map((index) => image.getSampleFormat(index)),
     samplesPerPixel: sampleIndexes.length,
-    fileDirectory,
+    fileDirectory: (image.getFileDirectory?.() ?? {}) as Record<string, unknown>,
   };
 }
 

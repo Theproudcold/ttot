@@ -1,4 +1,5 @@
 import { createMetricTransformFromDescriptor } from '@/shared/geo/crs';
+import { buildGeoTiffExportBytes } from '@/features/export/exportGeoTiff';
 import { readFenceWindowWithCache } from '@/shared/geo/fenceWindow';
 import { aggregateGridCellsFromRasterWindow } from '@/shared/geo/gridAggregation';
 import { buildRasterClassificationPreviewRgba } from '@/shared/geo/rasterClassification';
@@ -162,6 +163,31 @@ export async function handleRasterWorkerRequest(
     };
 
     return { response, transfer: [validityMask.data.buffer as Transferable] };
+  }
+
+  if (request.type === 'export-geotiff') {
+    const { source, sourceKey, fenceRings, gridCellSize, aggregationMode, filename, activeClassificationLayer, metricTransformDescriptor, rotationDeg, projectSnapshot } = request.payload;
+    const result = await buildGeoTiffExportBytes({
+      file: source,
+      fenceRings,
+      gridCellSize,
+      aggregationMode,
+      filename,
+      activeClassificationLayer,
+      metricTransform: metricTransformDescriptor
+        ? createMetricTransformFromDescriptor(metricTransformDescriptor)
+        : null,
+      rotationDeg,
+      projectSnapshot,
+    });
+
+    const response: RasterWorkerResponse = {
+      id: request.id,
+      type: 'export-geotiff',
+      result,
+    };
+
+    return { response, transfer: [result.bytes as Transferable] };
   }
 
   return {

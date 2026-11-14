@@ -1,6 +1,7 @@
 import { getFenceSummary } from '@/shared/geo/fence';
 import { getPixelWindowFromFenceBoundingBox } from '@/shared/geo/rasterWindow';
 import { buildRasterSourceKey, normalizeNoDataValue, openRasterSession } from '@/shared/geo/rasterIo';
+import type { RasterImageHandle } from '@/shared/geo/rasterIo';
 import type { FenceRings } from '@/shared/types/fence';
 import type {
   PixelWindow,
@@ -10,7 +11,7 @@ import type {
 } from '@/shared/types/raster';
 
 /**
- * 围栏窗口的解码结果（聚合所需的最小集合）。
+ * 围栏窗口的解码结果（聚合与导出共同需要的像元部分）。
  */
 export type FenceWindowData = {
   window: PixelWindow;
@@ -89,14 +90,20 @@ export async function readFenceWindowWithCache(input: {
   sourceKey?: string;
   fenceRings: FenceRings;
   samples?: number[];
+  /**
+   * 已打开的影像句柄。主线程调用方通常已经为了读元信息而打开过会话，
+   * 传进来可以避免同一份文件在两条路径上各解析一次。
+   */
+  image?: RasterImageHandle;
 }): Promise<FenceWindowData> {
   const { source, sourceKey, fenceRings } = input;
   const sampleIndexes = input.samples && input.samples.length > 0 ? input.samples : [0];
-  const sourceIdentity =
-    sourceKey ?? (typeof source === 'string' ? source : buildRasterSourceKey(source));
+  // 会话与窗口缓存都用内容指纹做键：Worker 收到的是结构化克隆后的新 File 对象，
+  // 按对象身份缓存必然落空，同一份影像会被反复解析。
+  const sourceIdentity = sourceKey ?? buildRasterSourceKey(source);
 
-  const session = openRasterSession(source, { cacheKey: sourceKey });
-  const image = await session.getImage();
+  const image =
+    input.image ?? (await openRasterSession(source, { cacheKey: sourceIdentity }).getImage());
   const origin = image.getOrigin() as RasterOrigin;
   const resolution = image.getResolution() as RasterResolution;
   const window = getPixelWindowFromFenceBoundingBox({
