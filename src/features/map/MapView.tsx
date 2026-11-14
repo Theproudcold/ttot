@@ -5,6 +5,7 @@ import { buildRasterClassificationLegendData } from '@/shared/geo/raster';
 
 import { useMap } from './useMap';
 import { useRasterLoader } from './useRasterLoader';
+import { canClassifySingleBand } from './mapUtils';
 
 function getVisibleClassificationLayer(
   classificationLayers: ReturnType<typeof useMapUiStore.getState>['classificationLayers'],
@@ -38,8 +39,10 @@ export function MapView() {
     classificationLayers,
     visibleClassificationLayerId,
   );
+  // 必须与 useMap 的着色判定一致：rules 模式导出的文件带有追加的处方波段，
+  // 用 sampleBandCount 判断会让这类文件「地图着色但图例消失」。
   const legendData =
-    preview?.sampleBandCount === 1 && visibleClassificationLayer
+    canClassifySingleBand(preview) && visibleClassificationLayer
       ? buildRasterClassificationLegendData(visibleClassificationLayer)
       : null;
   const gradientLegendStartLabel =

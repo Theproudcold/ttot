@@ -344,4 +344,29 @@ describe('MapView', () => {
     expect(screen.getByText('中覆盖')).toBeInTheDocument();
     expect(screen.getByText('高覆盖')).toBeInTheDocument();
   });
+
+  it('keeps the legend for a rules export re-imported with an appended prescription band', () => {
+    act(() => {
+      useRasterStore.getState().setPreview({
+        url: 'data:image/png;base64,preview',
+        width: 4,
+        height: 1,
+        // rules 模式导出的文件会多出一个处方波段，但数据波段仍只有 1 个
+        sampleBandCount: 2,
+        classificationBandCount: 1,
+        sampleData: new Float32Array([-0.2, 0.3, 0.5, 0.8, 50, 80, 80, 120]),
+        sampleRanges: [{ min: -0.2, max: 0.8 }, { min: 50, max: 120 }],
+        noDataValue: null,
+      });
+      useMapUiStore.getState().addClassificationLayer(createRulesClassificationLayer());
+      useMapUiStore.getState().setVisibleClassificationLayer('landcover-rules');
+    });
+
+    render(<MapView />);
+
+    // 与 useMap 的着色判定保持一致：地图着色时图例必须同时存在
+    expect(screen.getByLabelText('raster-legend')).toBeInTheDocument();
+    expect(screen.getByText('土地覆盖')).toBeInTheDocument();
+    expect(screen.getByText('高覆盖')).toBeInTheDocument();
+  });
 });
