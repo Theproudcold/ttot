@@ -301,6 +301,10 @@ docs/images/                  # README 截图
 | --- | --- |
 | 分阶段加载（预览优先、掩码异步） | 大文件首屏等待过久 |
 | Web Worker offload | 预览重着色、掩码生成、网格聚合阻塞主线程 |
+| 网格聚合按列区间扫描 | 逐像元做度量计算、除法和命中判断的开销 |
+| 类型化累加器（`Float64Array` 求和 + `Uint32Array` 计数） | 每像元新建聚合对象与字符串键带来的内存分配 |
+| 度量坐标按行/列查表复用 | 每像元调用度量变换并新建坐标数组 |
+| 像元归属复用（一次扫描同时回填所有波段） | 导出时每个波段重复做一遍像元归属计算 |
 | 指针移动 rAF 节流 | 高频 `pointermove` 触发过多重渲染 |
 | 网格空间索引（`gridLookup`） | 悬停命中网格从线性扫描降为 O(1) |
 | 网格样式缓存 + `addFeatures` 批量渲染 | 密集网格重复创建样式与逐要素渲染 |
@@ -317,6 +321,8 @@ pnpm test
 ```
 
 测试覆盖空间计算（CRS、围栏、网格、聚合、度量变换、GeoTIFF 写入与导出）、状态管理（栅格、网格、UI）、工程快照与草稿，以及主要界面交互（左/右面板、顶栏、地图视图、导出控件）。
+
+其中 [tests/bench/grid-aggregation.test.ts](tests/bench/grid-aggregation.test.ts) 保留了一份旧写法的对照实现，用随机参数（含旋转、洞环、地理 CRS、负分辨率、nodata）校验聚合内核与波段回填结果逐单元格一致，并顺带输出耗时对比。
 
 CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在 Node.js 22 + pnpm 10 上执行 `pnpm install --frozen-lockfile`、`pnpm build` 与 `pnpm test`。
 

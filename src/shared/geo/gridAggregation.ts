@@ -23,6 +23,25 @@ type SupportedRasterArray =
 type PixelWindow = [number, number, number, number];
 
 /**
+ * 聚合输入参数。
+ */
+type GridAggregationInput = {
+  window: PixelWindow;
+  width: number;
+  height: number;
+  origin: RasterOrigin;
+  resolution: RasterResolution;
+  fenceRings: FenceRings;
+  gridCellWidth: number;
+  gridCellHeight: number;
+  band: SupportedRasterArray;
+  noDataValue: number | null;
+  metricTransform?: MetricTransform;
+  aggregationMode?: GridAggregationMode;
+  rotationDeg?: number;
+};
+
+/**
  * 异步聚合的可选参数。
  */
 type GridAggregationAsyncOptions = {
@@ -74,24 +93,6 @@ function getPixelCenter(
   const [resolutionX, resolutionY] = resolution;
 
   return [originX + (col + 0.5) * resolutionX, originY + (row + 0.5) * resolutionY];
-}
-
-/**
- * 构建单个网格单元的初始聚合数据结构。
- */
-function buildCellAggregation(cellId: string, row: number, col: number): GridCellAggregation {
-  return {
-    cellId,
-    row,
-    col,
-    pixelCount: 0,
-    validPixelCount: 0,
-    sumValue: 0,
-    meanValue: null,
-    minValue: Number.POSITIVE_INFINITY,
-    maxValue: Number.NEGATIVE_INFINITY,
-    outputValue: null,
-  };
 }
 
 /**
@@ -258,26 +259,34 @@ function getCellBounds(input: {
 }
 
 /**
- * 遍历网格所有单元格，仅保留中心点位于围栏内部的单元格 ID。
- * 返回包含的单元格集合及网格几何信息。
+ * 网格索引：`included` 以 `row * cols + col` 为下标，1 表示该单元被围栏命中。
  */
-function buildIncludedCellIds(
-  fenceRings: FenceRings,
-  gridCellWidth: number,
-  gridCellHeight: number,
-  metricTransform: MetricTransform,
-  rotationDeg = 0,
-): {
-  includedCellIds: Set<string>;
+type GridIndex = {
   gridMinX: number;
   gridMinY: number;
   gridMaxX: number;
   gridMaxY: number;
   cols: number;
   rows: number;
-} {
+  included: Uint8Array;
+};
+
+/**
+ * 构建网格几何信息与命中标记。
+ * 命中规则：单元格中心点（旋转后）落在围栏内部。
+ *
+ * 为什么用 `Uint8Array` 代替 `Set<string>`：聚合热路径上每个像元都要做一次归属查询，
+ * 字符串键需要拼接与哈希，而数值下标只是一次数组读取。
+ */
+function buildGridIndex(
+  fenceRings: FenceRings,
+  gridCellWidth: number,
+  gridCellHeight: number,
+  metricTransform: MetricTransform,
+  rotationDeg = 0,
+): GridIndex {
   const metrics = getGridMetrics(fenceRings, gridCellWidth, gridCellHeight, metricTransform, rotationDeg);
-  const includedCellIds = new Set<string>();
+  const included = new Uint8Array(metrics.cols * metrics.rows);
   const rotationRad = (rotationDeg * Math.PI) / 180;
 
   let center: [number, number] | null = null;
@@ -307,107 +316,309 @@ function buildIncludedCellIds(
       const centerGeo = metricTransform.fromMetric(cellCenter);
 
       if (isPointInFence(centerGeo, fenceRings)) {
-        includedCellIds.add(`r${row}-c${col}`);
+        included[row * metrics.cols + col] = 1;
       }
     }
   }
 
+  return { ...metrics, included };
+}
+
+/**
+ * 单元格累加器。全部使用类型化数组，按下标累加，避免每像元创建对象或字符串键。
+ */
+type CellAccumulator = {
+  sumValue: Float64Array;
+  validPixelCount: Uint32Array;
+  pixelCount: Uint32Array;
+  minValue: Float64Array;
+  maxValue: Float64Array;
+};
+
+function createCellAccumulator(cellCount: number): CellAccumulator {
+  const minValue = new Float64Array(cellCount);
+  const maxValue = new Float64Array(cellCount);
+  minValue.fill(Number.POSITIVE_INFINITY);
+  maxValue.fill(Number.NEGATIVE_INFINITY);
+
   return {
-    includedCellIds,
-    ...metrics,
+    sumValue: new Float64Array(cellCount),
+    validPixelCount: new Uint32Array(cellCount),
+    pixelCount: new Uint32Array(cellCount),
+    minValue,
+    maxValue,
   };
 }
 
 /**
- * 根据像素中心点坐标反查其所属的网格单元 ID。
- * 若像素不在网格范围内或对应单元格不在围栏内，则返回 null。
+ * 把累加器结果整理成对外契约结构。
+ *
+ * `hitCellIds` 记录单元格首次命中像元的顺序，保证返回对象的键顺序与逐像元累加实现一致。
+ * 只有真正命中过像元的单元格才会出现在结果里。
  */
-function getCellIdForPixel(input: {
-  center: FencePosition;
-  gridMinX: number;
-  gridMinY: number;
-  cols: number;
-  rows: number;
-  gridCellWidth: number;
-  gridCellHeight: number;
-  includedCellIds: Set<string>;
-  rotationDeg?: number;
-  gridCenter?: [number, number];
-}): { cellId: string; row: number; col: number } | null {
-  const { center, gridMinX, gridMinY, cols, rows, gridCellWidth, gridCellHeight, includedCellIds, rotationDeg = 0, gridCenter } = input;
-  let [centerX, centerY] = center;
-  const rotationRad = (rotationDeg * Math.PI) / 180;
-
-  if (rotationRad !== 0 && gridCenter) {
-    [centerX, centerY] = rotatePoint([centerX, centerY], gridCenter, -rotationRad);
-  }
-
-  const col = Math.floor((centerX - gridMinX) / gridCellWidth);
-  const row = Math.floor((centerY - gridMinY) / gridCellHeight);
-
-  if (col < 0 || col >= cols || row < 0 || row >= rows) {
-    return null;
-  }
-
-  const cellId = `r${row}-c${col}`;
-  if (!includedCellIds.has(cellId)) {
-    return null;
-  }
-
-  return { cellId, row, col };
-}
-
-/**
- * 对聚合结果进行最终计算：求均值、最小值、最大值，并根据聚合模式确定输出值。
- */
-function finalizeAggregation(
-  cellsById: Record<string, GridCellAggregation>,
-  mode: GridAggregationMode = 'mean',
+function materializeAggregation(
+  index: GridIndex,
+  accumulator: CellAccumulator,
+  hitCellIds: readonly number[],
+  mode: GridAggregationMode,
 ): GridAggregationResult {
-  for (const cell of Object.values(cellsById)) {
-    if (cell.validPixelCount === 0) {
-      cell.meanValue = null;
-      cell.minValue = null;
-      cell.maxValue = null;
-      cell.outputValue = null;
+  const cellsById: Record<string, GridCellAggregation> = {};
+
+  for (let hit = 0; hit < hitCellIds.length; hit += 1) {
+    const id = hitCellIds[hit];
+    const row = Math.floor(id / index.cols);
+    const col = id % index.cols;
+    const pixelCount = accumulator.pixelCount[id];
+    const validPixelCount = accumulator.validPixelCount[id];
+    const cellId = `r${row}-c${col}`;
+
+    if (validPixelCount === 0) {
+      cellsById[cellId] = {
+        cellId,
+        row,
+        col,
+        pixelCount,
+        validPixelCount,
+        sumValue: 0,
+        meanValue: null,
+        minValue: null,
+        maxValue: null,
+        outputValue: null,
+      };
       continue;
     }
 
-    cell.meanValue = cell.sumValue / cell.validPixelCount;
-    cell.minValue = cell.minValue ?? null;
-    cell.maxValue = cell.maxValue ?? null;
+    const sumValue = accumulator.sumValue[id];
+    const meanValue = sumValue / validPixelCount;
+    const minValue = accumulator.minValue[id];
+    const maxValue = accumulator.maxValue[id];
 
+    let outputValue = meanValue;
     if (mode === 'max') {
-      cell.outputValue = cell.maxValue;
+      outputValue = maxValue;
     } else if (mode === 'min') {
-      cell.outputValue = cell.minValue;
-    } else {
-      cell.outputValue = cell.meanValue;
+      outputValue = minValue;
     }
+
+    cellsById[cellId] = {
+      cellId,
+      row,
+      col,
+      pixelCount,
+      validPixelCount,
+      sumValue,
+      meanValue,
+      minValue,
+      maxValue,
+      outputValue,
+    };
   }
 
   return { cellsById };
 }
 
 /**
- * 同步方式对栅格窗口进行网格聚合。
- * 遍历窗口内所有像素，将位于围栏内的像素按网格单元汇总，最后计算各单元的统计值。
+ * 把一行中连续像素累加进同一个单元格。
+ * 先读入局部变量、循环结束后一次性写回，避免每像元访问类型化数组。
  */
-export function aggregateGridCellsFromRasterWindow(input: {
-  window: PixelWindow;
-  width: number;
+function accumulateSpan(
+  accumulator: CellAccumulator,
+  hitCellIds: number[],
+  cellIndex: number,
+  band: SupportedRasterArray,
+  start: number,
+  length: number,
+  noDataValue: number | null,
+): void {
+  let pixelCount = accumulator.pixelCount[cellIndex];
+  if (pixelCount === 0) {
+    hitCellIds.push(cellIndex);
+  }
+
+  let validPixelCount = accumulator.validPixelCount[cellIndex];
+  let sumValue = accumulator.sumValue[cellIndex];
+  let minValue = accumulator.minValue[cellIndex];
+  let maxValue = accumulator.maxValue[cellIndex];
+  const end = start + length;
+
+  for (let index = start; index < end; index += 1) {
+    pixelCount += 1;
+    const value = band[index];
+
+    if ((noDataValue !== null && value === noDataValue) || !Number.isFinite(value)) {
+      continue;
+    }
+
+    validPixelCount += 1;
+    sumValue += value;
+    if (value < minValue) {
+      minValue = value;
+    }
+    if (value > maxValue) {
+      maxValue = value;
+    }
+  }
+
+  accumulator.pixelCount[cellIndex] = pixelCount;
+  accumulator.validPixelCount[cellIndex] = validPixelCount;
+  accumulator.sumValue[cellIndex] = sumValue;
+  accumulator.minValue[cellIndex] = minValue;
+  accumulator.maxValue[cellIndex] = maxValue;
+}
+
+/**
+ * 行列方向的度量坐标查找表。
+ *
+ * 为什么可以拆成两个一维表：当前所有度量变换（恒等、地理坐标局部等距）都是可分的，
+ * 即 metricX 只依赖经度/东向坐标、metricY 只依赖纬度/北向坐标。
+ * 这样每像元只需读表，不再调用变换函数（那里每次都会新建数组）。
+ * 若未来出现不可分的变换，探针会失败并退回逐像元调用变换的实现。
+ */
+type MetricAxes = {
+  xByCol: Float64Array;
+  yByRow: Float64Array;
+};
+
+function buildMetricAxes(
+  metricTransform: MetricTransform,
+  window: PixelWindow,
+  width: number,
+  height: number,
+  origin: RasterOrigin,
+  resolution: RasterResolution,
+): MetricAxes | null {
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+
+  const [windowStartCol, windowStartRow] = window;
+  const [originX, originY] = origin;
+  const [resolutionX, resolutionY] = resolution;
+  const xByCol = new Float64Array(width);
+  const yByRow = new Float64Array(height);
+
+  for (let col = 0; col < width; col += 1) {
+    xByCol[col] = metricTransform.toMetric([originX + (windowStartCol + col + 0.5) * resolutionX, originY])[0];
+  }
+
+  for (let row = 0; row < height; row += 1) {
+    yByRow[row] = metricTransform.toMetric([originX, originY + (windowStartRow + row + 0.5) * resolutionY])[1];
+  }
+
+  const probes: Array<[number, number]> = [
+    [0, 0],
+    [width - 1, 0],
+    [0, height - 1],
+    [width - 1, height - 1],
+    [width >> 1, height >> 1],
+  ];
+
+  for (const [col, row] of probes) {
+    const [metricX, metricY] = metricTransform.toMetric(
+      getPixelCenter(windowStartCol + col, windowStartRow + row, origin, resolution),
+    );
+
+    if (metricX !== xByCol[col] || metricY !== yByRow[row]) {
+      return null;
+    }
+  }
+
+  return { xByCol, yByRow };
+}
+
+/**
+ * 相邻且属于同一网格列的像素列区间。
+ */
+type ColSegment = {
+  start: number;
+  end: number;
+  cellCol: number;
+};
+
+/**
+ * 计算每一像素列所属的网格列号，网格范围之外为 -1。
+ */
+function buildColCellIndices(
+  width: number,
+  cols: number,
+  gridMinX: number,
+  gridCellWidth: number,
+  xByCol: Float64Array,
+): Int32Array {
+  const cellIndices = new Int32Array(width);
+
+  for (let col = 0; col < width; col += 1) {
+    const cellCol = Math.floor((xByCol[col] - gridMinX) / gridCellWidth);
+    cellIndices[col] = cellCol >= 0 && cellCol < cols ? cellCol : -1;
+  }
+
+  return cellIndices;
+}
+
+/**
+ * 把网格列号相同的相邻像素列合并为区间。
+ * 合并后内层循环不再需要逐像元做除法和归属判断，只保留取值与统计。
+ */
+function buildColSegments(colCellIndices: Int32Array): ColSegment[] {
+  const segments: ColSegment[] = [];
+  const width = colCellIndices.length;
+  let col = 0;
+
+  while (col < width) {
+    const cellCol = colCellIndices[col];
+    let end = col + 1;
+
+    while (end < width && colCellIndices[end] === cellCol) {
+      end += 1;
+    }
+
+    if (cellCol >= 0) {
+      segments.push({ start: col, end, cellCol });
+    }
+
+    col = end;
+  }
+
+  return segments;
+}
+
+/**
+ * 计算每一像素行所属的网格行号，网格范围之外为 -1。
+ */
+function buildRowCellIndices(
+  height: number,
+  rows: number,
+  gridMinY: number,
+  gridCellHeight: number,
+  yByRow: Float64Array,
+): Int32Array {
+  const cellIndices = new Int32Array(height);
+
+  for (let row = 0; row < height; row += 1) {
+    const cellRow = Math.floor((yByRow[row] - gridMinY) / gridCellHeight);
+    cellIndices[row] = cellRow >= 0 && cellRow < rows ? cellRow : -1;
+  }
+
+  return cellIndices;
+}
+
+/**
+ * 聚合内核：按行推进，行内按像素列区间直接累加。
+ */
+type AggregationKernel = {
   height: number;
-  origin: RasterOrigin;
-  resolution: RasterResolution;
-  fenceRings: FenceRings;
-  gridCellWidth: number;
-  gridCellHeight: number;
-  band: SupportedRasterArray;
-  noDataValue: number | null;
-  metricTransform?: MetricTransform;
-  aggregationMode?: GridAggregationMode;
-  rotationDeg?: number;
-}): GridAggregationResult {
+  accumulateRow: (row: number) => void;
+  finish: () => GridAggregationResult;
+};
+
+/**
+ * 构建聚合内核。
+ *
+ * 无旋转时走「列区间扫描」快路径：先按网格列把像素列切成区间，
+ * 每行只做区间级累加，避免逐像元的度量计算、除法与命中判断。
+ * 有旋转或度量变换不可分时退回逐像元路径，语义完全一致。
+ */
+function createAggregationKernel(input: GridAggregationInput): AggregationKernel {
   const {
     window,
     width,
@@ -423,71 +634,129 @@ export function aggregateGridCellsFromRasterWindow(input: {
     aggregationMode = 'mean',
     rotationDeg = 0,
   } = input;
-  assertValidGridCellSize(gridCellWidth, gridCellHeight);
-  const resolvedMetricTransform = resolveMetricTransform(fenceRings, metricTransform);
-  const [windowStartCol, windowStartRow] = window;
-  const { includedCellIds, gridMinX, gridMinY, cols, rows } = buildIncludedCellIds(
-    fenceRings,
-    gridCellWidth,
-    gridCellHeight,
-    resolvedMetricTransform,
-    rotationDeg,
-  );
 
-  let gridCenter: [number, number] | undefined;
+  assertValidGridCellSize(gridCellWidth, gridCellHeight);
+
+  const resolvedMetricTransform = resolveMetricTransform(fenceRings, metricTransform);
+  const index = buildGridIndex(fenceRings, gridCellWidth, gridCellHeight, resolvedMetricTransform, rotationDeg);
+  const accumulator = createCellAccumulator(index.cols * index.rows);
+  const hitCellIds: number[] = [];
   const rotationRad = (rotationDeg * Math.PI) / 180;
+  const [windowStartCol, windowStartRow] = window;
+
+  const finish = () => materializeAggregation(index, accumulator, hitCellIds, aggregationMode);
+
+  const axes = buildMetricAxes(resolvedMetricTransform, window, width, height, origin, resolution);
+
+  if (rotationRad === 0 && axes) {
+    const colCellIndices = buildColCellIndices(width, index.cols, index.gridMinX, gridCellWidth, axes.xByCol);
+    const segments = buildColSegments(colCellIndices);
+    const rowCellIndices = buildRowCellIndices(height, index.rows, index.gridMinY, gridCellHeight, axes.yByRow);
+
+    const accumulateRow = (row: number) => {
+      const cellRow = rowCellIndices[row];
+      if (cellRow < 0) {
+        return;
+      }
+
+      const base = row * width;
+      const rowOffset = cellRow * index.cols;
+
+      for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
+        const segment = segments[segmentIndex];
+        const cellIndex = rowOffset + segment.cellCol;
+
+        if (index.included[cellIndex] !== 1) {
+          continue;
+        }
+
+        accumulateSpan(
+          accumulator,
+          hitCellIds,
+          cellIndex,
+          band,
+          base + segment.start,
+          segment.end - segment.start,
+          noDataValue,
+        );
+      }
+    };
+
+    return { height, accumulateRow, finish };
+  }
+
+  // 旋转或度量变换不可分：逐像元计算归属，但仍复用度量查找表避免每像元分配。
+  let gridCenterX = 0;
+  let gridCenterY = 0;
   if (rotationRad !== 0) {
     const [minX, minY, maxX, maxY] = getMetricBounds(fenceRings, resolvedMetricTransform);
-    gridCenter = [(minX + maxX) / 2, (minY + maxY) / 2];
+    gridCenterX = (minX + maxX) / 2;
+    gridCenterY = (minY + maxY) / 2;
   }
 
-  const cellsById: Record<string, GridCellAggregation> = {};
+  const cosRotation = Math.cos(-rotationRad);
+  const sinRotation = Math.sin(-rotationRad);
 
-  for (let row = 0; row < height; row += 1) {
+  const accumulateRow = (row: number) => {
+    const base = row * width;
+    const rowMetricY = axes ? axes.yByRow[row] : 0;
+
     for (let col = 0; col < width; col += 1) {
-      const pixelIndex = row * width + col;
-      const center = resolvedMetricTransform.toMetric(
-        getPixelCenter(windowStartCol + col, windowStartRow + row, origin, resolution),
-      );
-      const cellMatch = getCellIdForPixel({
-        center,
-        gridMinX,
-        gridMinY,
-        cols,
-        rows,
-        gridCellWidth,
-        gridCellHeight,
-        includedCellIds,
-        rotationDeg,
-        gridCenter,
-      });
+      let metricX: number;
+      let metricY: number;
 
-      if (!cellMatch) {
+      if (axes) {
+        metricX = axes.xByCol[col];
+        metricY = rowMetricY;
+      } else {
+        const center = resolvedMetricTransform.toMetric(
+          getPixelCenter(windowStartCol + col, windowStartRow + row, origin, resolution),
+        );
+        metricX = center[0];
+        metricY = center[1];
+      }
+
+      let gridX = metricX;
+      let gridY = metricY;
+
+      if (rotationRad !== 0) {
+        const deltaX = metricX - gridCenterX;
+        const deltaY = metricY - gridCenterY;
+        gridX = gridCenterX + deltaX * cosRotation - deltaY * sinRotation;
+        gridY = gridCenterY + deltaX * sinRotation + deltaY * cosRotation;
+      }
+
+      const cellCol = Math.floor((gridX - index.gridMinX) / gridCellWidth);
+      const cellRow = Math.floor((gridY - index.gridMinY) / gridCellHeight);
+
+      if (cellCol < 0 || cellCol >= index.cols || cellRow < 0 || cellRow >= index.rows) {
         continue;
       }
 
-      const cell =
-        cellsById[cellMatch.cellId] ??
-        (cellsById[cellMatch.cellId] = buildCellAggregation(
-          cellMatch.cellId,
-          cellMatch.row,
-          cellMatch.col,
-        ));
-      cell.pixelCount += 1;
-
-      const value = band[pixelIndex];
-      if ((noDataValue !== null && value === noDataValue) || !Number.isFinite(value)) {
+      const cellIndex = cellRow * index.cols + cellCol;
+      if (index.included[cellIndex] !== 1) {
         continue;
       }
 
-      cell.validPixelCount += 1;
-      cell.sumValue += value;
-      cell.minValue = Math.min(cell.minValue ?? Number.POSITIVE_INFINITY, value);
-      cell.maxValue = Math.max(cell.maxValue ?? Number.NEGATIVE_INFINITY, value);
+      accumulateSpan(accumulator, hitCellIds, cellIndex, band, base + col, 1, noDataValue);
     }
+  };
+
+  return { height, accumulateRow, finish };
+}
+
+/**
+ * 同步方式对栅格窗口进行网格聚合。
+ * 遍历窗口内所有像素，将位于围栏内的像素按网格单元汇总，最后计算各单元的统计值。
+ */
+export function aggregateGridCellsFromRasterWindow(input: GridAggregationInput): GridAggregationResult {
+  const kernel = createAggregationKernel(input);
+
+  for (let row = 0; row < kernel.height; row += 1) {
+    kernel.accumulateRow(row);
   }
 
-  return finalizeAggregation(cellsById, aggregationMode);
+  return kernel.finish();
 }
 
 /**
@@ -495,117 +764,23 @@ export function aggregateGridCellsFromRasterWindow(input: {
  * 与同步版本逻辑一致，但会按指定行数分块让出主线程，避免大数据量阻塞 UI。
  */
 export async function aggregateGridCellsFromRasterWindowAsync(
-  input: {
-    window: PixelWindow;
-    width: number;
-    height: number;
-    origin: RasterOrigin;
-    resolution: RasterResolution;
-    fenceRings: FenceRings;
-    gridCellWidth: number;
-    gridCellHeight: number;
-    band: SupportedRasterArray;
-    noDataValue: number | null;
-    metricTransform?: MetricTransform;
-    aggregationMode?: GridAggregationMode;
-    rotationDeg?: number;
-  },
+  input: GridAggregationInput,
   options: GridAggregationAsyncOptions = {},
 ): Promise<GridAggregationResult> {
-  const {
-    window,
-    width,
-    height,
-    origin,
-    resolution,
-    fenceRings,
-    gridCellWidth,
-    gridCellHeight,
-    band,
-    noDataValue,
-    metricTransform,
-    aggregationMode = 'mean',
-    rotationDeg = 0,
-  } = input;
-  assertValidGridCellSize(gridCellWidth, gridCellHeight);
-  const resolvedMetricTransform = resolveMetricTransform(fenceRings, metricTransform);
-  const [windowStartCol, windowStartRow] = window;
-  const { includedCellIds, gridMinX, gridMinY, cols, rows } = buildIncludedCellIds(
-    fenceRings,
-    gridCellWidth,
-    gridCellHeight,
-    resolvedMetricTransform,
-    rotationDeg,
-  );
-
-  let gridCenter: [number, number] | undefined;
-  const rotationRad = (rotationDeg * Math.PI) / 180;
-  if (rotationRad !== 0) {
-    const [minX, minY, maxX, maxY] = getMetricBounds(fenceRings, resolvedMetricTransform);
-    gridCenter = [(minX + maxX) / 2, (minY + maxY) / 2];
-  }
-
-  // 快速围栏边界框预过滤，跳过明显在围栏外的像元
-  const [fenceMinX, fenceMinY, fenceMaxX, fenceMaxY] = getMetricBounds(fenceRings, resolvedMetricTransform);
-
-  const cellsById: Record<string, GridCellAggregation> = {};
+  const kernel = createAggregationKernel(input);
   const rowsPerChunk = resolveRowsPerChunk(options.rowsPerChunk);
   const yieldControl = options.yieldControl ?? defaultYieldControl;
 
-  for (let row = 0; row < height; row += 1) {
+  for (let row = 0; row < kernel.height; row += 1) {
     if (row > 0 && row % rowsPerChunk === 0) {
       // Yield between row chunks so large rasters do not monopolize the main thread.
       await yieldControl();
     }
 
-    for (let col = 0; col < width; col += 1) {
-      const pixelIndex = row * width + col;
-      const center = resolvedMetricTransform.toMetric(
-        getPixelCenter(windowStartCol + col, windowStartRow + row, origin, resolution),
-      );
-      const [px, py] = center;
-      if (px < fenceMinX || px > fenceMaxX || py < fenceMinY || py > fenceMaxY) {
-        continue;
-      }
-      const cellMatch = getCellIdForPixel({
-        center,
-        gridMinX,
-        gridMinY,
-        cols,
-        rows,
-        gridCellWidth,
-        gridCellHeight,
-        includedCellIds,
-        rotationDeg,
-        gridCenter,
-      });
-
-      if (!cellMatch) {
-        continue;
-      }
-
-      const cell =
-        cellsById[cellMatch.cellId] ??
-        (cellsById[cellMatch.cellId] = buildCellAggregation(
-          cellMatch.cellId,
-          cellMatch.row,
-          cellMatch.col,
-        ));
-      cell.pixelCount += 1;
-
-      const value = band[pixelIndex];
-      if ((noDataValue !== null && value === noDataValue) || !Number.isFinite(value)) {
-        continue;
-      }
-
-      cell.validPixelCount += 1;
-      cell.sumValue += value;
-      cell.minValue = Math.min(cell.minValue ?? Number.POSITIVE_INFINITY, value);
-      cell.maxValue = Math.max(cell.maxValue ?? Number.NEGATIVE_INFINITY, value);
-    }
+    kernel.accumulateRow(row);
   }
 
-  return finalizeAggregation(cellsById, aggregationMode);
+  return kernel.finish();
 }
 
 /**
@@ -643,50 +818,107 @@ export function applyGridAggregationToBands(input: {
     metricTransform,
     rotationDeg = 0,
   } = input;
-  assertValidGridCellSize(gridCellWidth, gridCellHeight);
-  const resolvedMetricTransform = resolveMetricTransform(fenceRings, metricTransform);
-  const [windowStartCol, windowStartRow] = window;
-  const { includedCellIds, gridMinX, gridMinY, cols, rows } = buildIncludedCellIds(
-    fenceRings,
-    gridCellWidth,
-    gridCellHeight,
-    resolvedMetricTransform,
-    rotationDeg,
-  );
 
-  let gridCenter: [number, number] | undefined;
+  assertValidGridCellSize(gridCellWidth, gridCellHeight);
+
+  const resolvedMetricTransform = resolveMetricTransform(fenceRings, metricTransform);
+  const index = buildGridIndex(fenceRings, gridCellWidth, gridCellHeight, resolvedMetricTransform, rotationDeg);
   const rotationRad = (rotationDeg * Math.PI) / 180;
+  const [windowStartCol, windowStartRow] = window;
+  const axes = buildMetricAxes(resolvedMetricTransform, window, width, height, origin, resolution);
+
+  let gridCenterX = 0;
+  let gridCenterY = 0;
   if (rotationRad !== 0) {
     const [minX, minY, maxX, maxY] = getMetricBounds(fenceRings, resolvedMetricTransform);
-    gridCenter = [(minX + maxX) / 2, (minY + maxY) / 2];
+    gridCenterX = (minX + maxX) / 2;
+    gridCenterY = (minY + maxY) / 2;
   }
+
+  const cosRotation = Math.cos(-rotationRad);
+  const sinRotation = Math.sin(-rotationRad);
+
+  // 无旋转时先算出列区间，避免每个波段都对每个像元重算归属
+  const scanline = rotationRad === 0 && axes ? {
+    segments: buildColSegments(buildColCellIndices(width, index.cols, index.gridMinX, gridCellWidth, axes.xByCol)),
+    rowCellIndices: buildRowCellIndices(height, index.rows, index.gridMinY, gridCellHeight, axes.yByRow),
+  } : null;
 
   const rewrittenBands = bands.map((band) => {
     const nextBand = new Float64Array(band.length);
+    nextBand.fill(noDataValue);
 
     for (let row = 0; row < height; row += 1) {
-      for (let col = 0; col < width; col += 1) {
-        const pixelIndex = row * width + col;
-        const center = resolvedMetricTransform.toMetric(
-          getPixelCenter(windowStartCol + col, windowStartRow + row, origin, resolution),
-        );
-        const cellMatch = getCellIdForPixel({
-          center,
-          gridMinX,
-          gridMinY,
-          cols,
-          rows,
-          gridCellWidth,
-          gridCellHeight,
-          includedCellIds,
-          rotationDeg,
-          gridCenter,
-        });
-        const outputValue = cellMatch
-          ? aggregation.cellsById[cellMatch.cellId]?.outputValue ?? null
-          : null;
+      const base = row * width;
 
-        nextBand[pixelIndex] = outputValue === null ? noDataValue : outputValue;
+      if (scanline) {
+        const cellRow = scanline.rowCellIndices[row];
+        if (cellRow < 0) {
+          continue;
+        }
+
+        const rowOffset = cellRow * index.cols;
+
+        for (let segmentIndex = 0; segmentIndex < scanline.segments.length; segmentIndex += 1) {
+          const segment = scanline.segments[segmentIndex];
+          const cellIndex = rowOffset + segment.cellCol;
+
+          if (index.included[cellIndex] !== 1) {
+            continue;
+          }
+
+          const cellId = `r${cellRow}-c${segment.cellCol}`;
+          const outputValue = aggregation.cellsById[cellId]?.outputValue ?? null;
+          nextBand.fill(
+            outputValue === null ? noDataValue : outputValue,
+            base + segment.start,
+            base + segment.end,
+          );
+        }
+
+        continue;
+      }
+
+      for (let col = 0; col < width; col += 1) {
+        let metricX: number;
+        let metricY: number;
+
+        if (axes) {
+          metricX = axes.xByCol[col];
+          metricY = axes.yByRow[row];
+        } else {
+          const center = resolvedMetricTransform.toMetric(
+            getPixelCenter(windowStartCol + col, windowStartRow + row, origin, resolution),
+          );
+          metricX = center[0];
+          metricY = center[1];
+        }
+
+        let gridX = metricX;
+        let gridY = metricY;
+
+        if (rotationRad !== 0) {
+          const deltaX = metricX - gridCenterX;
+          const deltaY = metricY - gridCenterY;
+          gridX = gridCenterX + deltaX * cosRotation - deltaY * sinRotation;
+          gridY = gridCenterY + deltaX * sinRotation + deltaY * cosRotation;
+        }
+
+        const cellCol = Math.floor((gridX - index.gridMinX) / gridCellWidth);
+        const cellRow = Math.floor((gridY - index.gridMinY) / gridCellHeight);
+
+        if (cellCol < 0 || cellCol >= index.cols || cellRow < 0 || cellRow >= index.rows) {
+          continue;
+        }
+
+        const cellIndex = cellRow * index.cols + cellCol;
+        if (index.included[cellIndex] !== 1) {
+          continue;
+        }
+
+        const cellId = `r${cellRow}-c${cellCol}`;
+        const outputValue = aggregation.cellsById[cellId]?.outputValue ?? null;
+        nextBand[base + col] = outputValue === null ? noDataValue : outputValue;
       }
     }
 
