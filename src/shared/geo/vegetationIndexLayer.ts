@@ -17,6 +17,11 @@ import {
   type EqualAreaClassification,
 } from './classificationHistogram';
 import {
+  compileCustomIndex,
+  computeCustomIndexRaster,
+  type CustomIndexRaster,
+} from './customIndex';
+import {
   VEGETATION_INDEX_DEFINITIONS,
   SPECTRAL_BAND_ROLE_LABELS,
   computeIndexRaster,
@@ -79,8 +84,7 @@ export function describeMissingBands(
  * @returns 无法分级（无有效像元、或数据取值无法切分）时返回 null；
  *          缺波段属于调用方错误，直接抛错并指明缺哪个波段。
  */
-export function prepareVegetationIndexLayer(input: {
-  index: VegetationIndexId;
+export function prepareVegetationIndexLayer(input: {  index: VegetationIndexId;
   width: number;
   height: number;
   bands: Partial<Record<SpectralBandRole, ArrayLike<number>>>;
@@ -130,14 +134,101 @@ export function prepareVegetationIndexLayer(input: {
     index,
     raster,
     classification,
-    layer: {
-      id: layerId,
-      label,
-      noDataColor: DEFAULT_VEGETATION_INDEX_NO_DATA_COLOR,
-      visible: true,
-      mode: 'rules',
-      gradientStops: [],
-      rules: classification.rules as [(typeof classification.rules)[number], ...(typeof classification.rules)[number][]],
-    },
+    layer: buildLayer(layerId, label, classification),
+  };
+}
+
+function buildLayer(
+  layerId: string,
+  label: string,
+  classification: EqualAreaClassification,
+): VegetationIndexLayer {
+  return {
+    id: layerId,
+    label,
+    noDataColor: DEFAULT_VEGETATION_INDEX_NO_DATA_COLOR,
+    visible: true,
+    mode: 'rules',
+    gradientStops: [],
+    rules: classification.rules as [
+      (typeof classification.rules)[number],
+      ...(typeof classification.rules)[number][],
+    ],
+  };
+}
+
+export type CustomIndexLayerPlan = {
+  source: string;
+  raster: CustomIndexRaster;
+  classification: EqualAreaClassification;
+  layer: VegetationIndexLayer;
+};
+
+/**
+ * 自定义公式版的等价流程：编译 → 算栅格 → 等面积分级 → 生成方案。
+ * 编译失败时抛出，错误信息带位置，界面可直接展示。
+ */
+export function prepareCustomIndexLayer(input: {
+  source: string;
+  width: number;
+  height: number;
+  bands: Partial<Record<SpectralBandRole, ArrayLike<number>>>;
+  noDataValue?: number | null;
+  classCount?: number;
+  colors?: readonly string[];
+  labelPrefix?: string;
+  layerId?: string;
+  layerLabel?: string;
+}): CustomIndexLayerPlan | null {
+  const {
+    source,
+    width,
+    height,
+    bands,
+    noDataValue = null,
+    classCount = DEFAULT_EQUAL_AREA_CLASS_COUNT,
+    colors = DEFAULT_EQUAL_AREA_COLORS,
+    labelPrefix = '分级 ',
+    layerId = 'custom-index',
+    layerLabel,
+  } = input;
+
+  const compiled = compileCustomIndex(source);
+
+  if (!compiled.ok) {
+    const first = compiled.errors[0];
+    throw new Error(`公式无法使用：${first?.message ?? '语法错误'}`);
+  }
+
+  const missing = compiled.index.requiredBands.filter((role) => !bands[role]);
+  if (missing.length > 0) {
+    const names = missing.map((role) => `「${SPECTRAL_BAND_ROLE_LABELS[role]}」`).join('、');
+    throw new Error(`自定义公式需要${names}波段，当前波段分配缺失。`);
+  }
+
+  const raster = computeCustomIndexRaster({
+    compiled: compiled.index,
+    width,
+    height,
+    bands,
+    noDataValue,
+  });
+
+  const classification = buildEqualAreaClassification({
+    values: raster.data,
+    classCount,
+    colors,
+    labelPrefix,
+  });
+
+  if (!classification) {
+    return null;
+  }
+
+  return {
+    source: compiled.index.source,
+    raster,
+    classification,
+    layer: buildLayer(layerId, layerLabel ?? `自定义指数（${compiled.index.source}）等面积分级`, classification),
   };
 }

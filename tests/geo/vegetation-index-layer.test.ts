@@ -4,6 +4,7 @@ import {
   DEFAULT_VEGETATION_INDEX_LAYER_ID,
   DEFAULT_VEGETATION_INDEX_NO_DATA_COLOR,
   describeMissingBands,
+  prepareCustomIndexLayer,
   prepareVegetationIndexLayer,
   resolveRoleBands,
 } from '@/shared/geo/vegetationIndexLayer';
@@ -149,5 +150,63 @@ describe('prepareVegetationIndexLayer', () => {
         bands: { nir: Float32Array.from([0.5]), red: Float32Array.from([0.1]) },
       }),
     ).toThrow('蓝');
+  });
+});
+
+describe('prepareCustomIndexLayer', () => {
+  it('turns a custom formula into an equal-area rules layer', () => {
+    const plan = prepareCustomIndexLayer({
+      source: '(nir - red) / (nir + red)',
+      width: 2,
+      height: 2,
+      bands: { nir, red },
+      classCount: 2,
+    });
+
+    expect(plan).not.toBeNull();
+    if (!plan) return;
+
+    expect(plan.source).toBe('(nir - red) / (nir + red)');
+    expect(plan.raster.validCount).toBe(4);
+    expect(plan.classification.classCount).toBe(2);
+    expect(plan.layer.mode).toBe('rules');
+    expect(plan.layer.visible).toBe(true);
+    expect(plan.layer.id).toBe('custom-index');
+    expect(plan.layer.label).toContain('自定义指数');
+    expect(plan.layer.rules).toHaveLength(2);
+  });
+
+  it('rejects an unusable formula instead of silently producing nothing', () => {
+    expect(() =>
+      prepareCustomIndexLayer({
+        source: 'ndvi * 2',
+        width: 2,
+        height: 2,
+        bands: { nir, red },
+      }),
+    ).toThrow('未知波段');
+
+    expect(() =>
+      prepareCustomIndexLayer({
+        source: '(nir - red) / (nir + red)',
+        width: 2,
+        height: 2,
+        bands: { nir },
+      }),
+    ).toThrow('红');
+  });
+
+  it('returns null when the result cannot be split into classes', () => {
+    const plan = prepareCustomIndexLayer({
+      source: 'nir - red',
+      width: 2,
+      height: 2,
+      bands: {
+        nir: Float32Array.from([0.5, 0.5, 0.5, 0.5]),
+        red: Float32Array.from([0.1, 0.1, 0.1, 0.1]),
+      },
+    });
+
+    expect(plan).toBeNull();
   });
 });

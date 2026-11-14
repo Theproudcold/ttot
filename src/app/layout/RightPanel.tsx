@@ -29,6 +29,7 @@ import { DebouncedColorPicker } from './right-panel/DebouncedColorPicker';
 import { HoverInfoCard } from './right-panel/HoverInfoCard';
 import { RuleLabelInput } from './right-panel/RuleLabelInput';
 import { RuleNumberInput } from './right-panel/RuleNumberInput';
+import { VegetationIndexPanel } from './right-panel/VegetationIndexPanel';
 
 /**
  * 右侧面板。
@@ -238,6 +239,11 @@ export function RightPanel() {
       <h3>悬停信息</h3>
       <div className="card">
         <HoverInfoCard />
+      </div>
+
+      <h3>植被指数</h3>
+      <div className="card">
+        <VegetationIndexPanel />
       </div>
 
       <h3>分类方案</h3>
