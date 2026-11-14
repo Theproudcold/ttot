@@ -5,13 +5,19 @@ on:
     branches: [main]
   pull_request:
 
+# 最小权限：CI 只需要读仓库内容，避免默认令牌带上写权限
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
+      # 第三方 action 锁定到 v4 对应的提交（tag 可被移动，指向非预期代码）
+      # v4 -> b906affcce14559ad1aafd4ab0e942779e9f58b1
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
         with:
           version: 10
 
