@@ -27,6 +27,15 @@ type GeoTiffWriteOptions = {
    * 本工具用它内嵌工程配方；注意会覆盖源文件的同名 tag。
    */
   imageDescription?: string;
+  /**
+   * 尾部的附加波段数量（写入 ExtraSamples, tag 338）。
+   *
+   * 必须由调用方显式给出：`samplesPerPixel - 1` 只对单波段灰度（PhotometricInterpretation=1）
+   * 成立；RGB 源追加一个处方波段时 SamplesPerPixel=4 但附加波段只有 1 个，
+   * 若按 `samplesPerPixel - 1` 推断会写出 3 个附加波段并让读取端算错数据波段数。
+   * 缺省时退回「仅单波段灰度多波段」的旧推断，仅为兼容旧调用方。
+   */
+  extraSamplesCount?: number;
 };
 
 type TiffFieldType = 2 | 3 | 4 | 12;
@@ -264,6 +273,7 @@ export function writeGeoTiffBuffer(options: GeoTiffWriteOptions): ArrayBuffer {
     geoDoubleParams,
     gdalNoData,
     imageDescription,
+    extraSamplesCount,
   } = options;
 
   if (bands.length !== samplesPerPixel) {
@@ -288,9 +298,17 @@ export function writeGeoTiffBuffer(options: GeoTiffWriteOptions): ArrayBuffer {
     createDoubleArrayTag(33922, modelTiepoint),
   ];
 
-  if (samplesPerPixel > 1 && photometricInterpretation === 1) {
-    const extraSamples = Array.from({ length: samplesPerPixel - 1 }, () => 0); // 0 = Unspecified Data
-    tags.push(createShortArrayTag(338, extraSamples));
+  const inferredExtraSamples =
+    samplesPerPixel > 1 && photometricInterpretation === 1 ? samplesPerPixel - 1 : 0;
+  const requestedExtraSamples =
+    typeof extraSamplesCount === 'number' && Number.isFinite(extraSamplesCount)
+      ? Math.max(0, Math.floor(extraSamplesCount))
+      : inferredExtraSamples;
+  const extraSamples = Math.min(requestedExtraSamples, Math.max(0, samplesPerPixel - 1));
+
+  if (extraSamples > 0) {
+    const extraSamplesTags = Array.from({ length: extraSamples }, () => 0); // 0 = Unspecified Data
+    tags.push(createShortArrayTag(338, extraSamplesTags));
   }
 
   if (geoKeyDirectory && geoKeyDirectory.length > 0) {

@@ -6,6 +6,7 @@ import {
   type SupportedRasterArray,
 } from '@/shared/geo/geotiffExport';
 import { writeGeoTiffBuffer } from '@/shared/geo/geotiffWriter';
+import { countExtraSamples } from '@/shared/geo/rasterPreview';
 import { resolveCellAmount } from '@/shared/geo/applicationRate';
 import { encodeEmbeddedSnapshot, type ProjectSnapshotV1 } from '@/features/project/projectSnapshot';
 import type { MetricTransform } from '@/shared/geo/crs';
@@ -127,9 +128,8 @@ export async function exportFenceGeoTiff(input: {
   // 若沿用源的 BitsPerSample/SampleFormat，writer 会按整数写入造成截断（有符号还会取模）。
   // 因此无论是否启用分类规则，导出波段一律提升为 Float32。
   let finalBands: SupportedRasterArray[] = masked.bands.map(toFloat32Band);
-  let finalBitsPerSample = finalBands.map(() => 32);
-  let finalSampleFormat = finalBands.map(() => 3);
-  let finalSamplesPerPixel = finalBands.length;
+  // 源文件自带的附加波段（如 alpha）必须继续声明，否则读取端会把它当成数据波段
+  let extraSamplesCount = countExtraSamples(fileDirectory);
 
   if (activeClassificationLayer?.mode === 'rules' && finalBands[0]) {
     const rules = (activeClassificationLayer as RasterRuleClassificationLayer).rules;
@@ -144,7 +144,7 @@ export async function exportFenceGeoTiff(input: {
 
     for (let i = 0; i < finalBands[0].length; i++) {
         const val = finalBands[0][i];
-        if (val !== exportNoDataValue && val != null) {
+        if (val !== exportNoDataValue) {
             for (let ruleIndex = 0; ruleIndex < rules.length; ruleIndex += 1) {
                 const rule = rules[ruleIndex];
                 if (val >= rule.min && (rule.max === null || val <= rule.max)) {
@@ -159,10 +159,12 @@ export async function exportFenceGeoTiff(input: {
     }
 
     finalBands = [...finalBands, prescriptionBand];
-    finalBitsPerSample = finalBands.map(() => 32);
-    finalSampleFormat = finalBands.map(() => 3);
-    finalSamplesPerPixel = finalBands.length;
+    // 处方波段是显式声明的附加波段；不做声明会让重新导入时把它算成数据波段
+    extraSamplesCount += 1;
   }
+
+  const finalBitsPerSample = finalBands.map(() => 32);
+  const finalSampleFormat = finalBands.map(() => 3);
 
   const [croppedOriginX, croppedOriginY, croppedOriginZ = 0] = buildWindowOrigin(
     window,
@@ -190,11 +192,12 @@ export async function exportFenceGeoTiff(input: {
     bands: finalBands,
     bitsPerSample: finalBitsPerSample,
     sampleFormat: finalSampleFormat,
-    samplesPerPixel: finalSamplesPerPixel,
+    samplesPerPixel: finalBands.length,
     photometricInterpretation:
       typeof fileDirectory.PhotometricInterpretation === 'number'
         ? fileDirectory.PhotometricInterpretation
         : undefined,
+    extraSamplesCount,
     modelPixelScale: isNumericArrayLike(fileDirectory.ModelPixelScale)
       ? (fileDirectory.ModelPixelScale as number[])
       : [Math.abs(resolution[0]), Math.abs(resolution[1]), 0],

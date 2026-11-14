@@ -692,7 +692,77 @@ describe('exportFenceGeoTiff', () => {
       ]),
     );
     expect(Array.from(firstCall?.bands[1] ?? [])).toEqual([50, 80, 80, 120]);
+    // 处方波段必须被声明为附加波段，否则重新导入时会被当成数据波段
+    expect(firstCall?.extraSamplesCount).toBe(1);
     expect(result.blob).toBeInstanceOf(Blob);
+  });
+
+  it('keeps an RGB source readable as 3 data bands after appending the prescription band', async () => {
+    const file = new File(['demo'], 'rgb.tif', { type: 'image/tiff' });
+    const image = {
+      getWidth: () => 2,
+      getHeight: () => 2,
+      getOrigin: () => [100, 200, 0] as [number, number, number],
+      getResolution: () => [10, -10, 0] as [number, number, number],
+      getBitsPerSample: () => 8,
+      getSampleFormat: () => 1,
+      getSamplesPerPixel: () => 3,
+      getGDALNoData: () => null,
+      getFileDirectory: () => ({
+        // RGB 源：3 个数据波段，追加 1 个处方波段后 SamplesPerPixel=4
+        PhotometricInterpretation: 2,
+        ModelPixelScale: [10, 10, 0],
+        GeoKeyDirectory: new Uint16Array([1, 1, 0, 1, 3072, 0, 1, 4549]),
+      }),
+      readRasters: vi
+        .fn()
+        .mockResolvedValue([
+          new Float32Array([0.1, 0.35, 0.55, 0.8]),
+          new Float32Array([1, 1, 1, 1]),
+          new Float32Array([2, 2, 2, 2]),
+        ]),
+    };
+
+    readBlobBufferMock.mockResolvedValue(new Uint8Array([1, 2, 3]).buffer);
+    fromArrayBufferMock.mockResolvedValue({
+      getImage: vi.fn().mockResolvedValue(image),
+    });
+    writeGeoTiffBufferMock.mockReturnValue(new Uint8Array([7, 8, 9]).buffer);
+
+    await exportFenceGeoTiff({
+      file,
+      gridCellSize: 10,
+      fence: {
+        ...fence,
+        summary: { ...fence.summary, bbox: [100, 180, 120, 200] },
+        geometry: {
+          ...fence.geometry,
+          coordinates: [
+            [
+              [100, 200],
+              [120, 200],
+              [120, 180],
+              [100, 180],
+              [100, 200],
+            ],
+          ],
+        },
+      },
+      activeClassificationLayer: {
+        id: 'rules',
+        label: '变量施肥',
+        mode: 'rules',
+        noDataColor: '#00000000',
+        gradientStops: [],
+        rules: [{ min: 0, max: null, color: '#111111', label: 'all', applicationRate: 50 }],
+      },
+    });
+
+    const firstCall = vi.mocked(writeGeoTiffBufferMock).mock.calls[0]?.[0];
+
+    expect(firstCall?.samplesPerPixel).toBe(4);
+    expect(firstCall?.photometricInterpretation).toBe(2);
+    expect(firstCall?.extraSamplesCount).toBe(1);
   });
 });
 

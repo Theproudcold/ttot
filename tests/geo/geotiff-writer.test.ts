@@ -8,6 +8,7 @@ import {
   exportProjectSnapshot,
 } from '@/features/project/projectSnapshot';
 import { writeGeoTiffBuffer } from '@/shared/geo/geotiffWriter';
+import { countExtraSamples, resolveDataBandCount } from '@/shared/geo/rasterPreview';
 
 describe('writeGeoTiffBuffer', () => {
   it('writes a float32 geotiff that can be read back correctly', async () => {
@@ -146,5 +147,54 @@ describe('writeGeoTiffBuffer', () => {
     expect(decoded?.ok).toBe(true);
     if (!decoded || !decoded.ok) return;
     expect(decoded.snapshot).toEqual(snapshot);
+  });
+
+  it('declares only the appended band as ExtraSamples for an RGB source', async () => {
+    const buffer = writeGeoTiffBuffer({
+      width: 1,
+      height: 1,
+      bands: [
+        new Float32Array([1]),
+        new Float32Array([2]),
+        new Float32Array([3]),
+        new Float32Array([80]),
+      ],
+      bitsPerSample: [32, 32, 32, 32],
+      sampleFormat: [3, 3, 3, 3],
+      samplesPerPixel: 4,
+      photometricInterpretation: 2,
+      extraSamplesCount: 1,
+      modelPixelScale: [1, 1, 0],
+      modelTiepoint: [0, 0, 0, 0, 0, 0],
+    });
+
+    const image = await (await fromArrayBuffer(buffer)).getImage();
+    const extraSamples = countExtraSamples(image.getFileDirectory());
+
+    // RGB 的 3 个波段是数据波段，只有追加的处方波段是附加波段。
+    // 若按 samplesPerPixel - 1 推断会写出 3 个附加波段，读取端就会把数据波段数算成 1。
+    expect(image.getSamplesPerPixel()).toBe(4);
+    expect(extraSamples).toBe(1);
+    expect(resolveDataBandCount(image.getSamplesPerPixel(), extraSamples)).toBe(3);
+  });
+
+  it('infers ExtraSamples from samples per pixel for legacy single-band callers', async () => {
+    const buffer = writeGeoTiffBuffer({
+      width: 1,
+      height: 1,
+      bands: [new Float32Array([1]), new Float32Array([2])],
+      bitsPerSample: [32, 32],
+      sampleFormat: [3, 3],
+      samplesPerPixel: 2,
+      photometricInterpretation: 1,
+      modelPixelScale: [1, 1, 0],
+      modelTiepoint: [0, 0, 0, 0, 0, 0],
+    });
+
+    const image = await (await fromArrayBuffer(buffer)).getImage();
+    const extraSamples = countExtraSamples(image.getFileDirectory());
+
+    expect(extraSamples).toBe(1);
+    expect(resolveDataBandCount(image.getSamplesPerPixel(), extraSamples)).toBe(1);
   });
 });
