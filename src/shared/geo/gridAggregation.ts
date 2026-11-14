@@ -787,6 +787,10 @@ export async function aggregateGridCellsFromRasterWindowAsync(
  * 将网格聚合结果应用到多波段栅格数据上。
  * 每个像素值被替换为其所在网格单元的聚合输出值；不在任何网格单元内的像素设为 noDataValue。
  * 返回改写后的波段数组及被掩膜（置为 noData）的像素数量。
+ *
+ * `outputType` 缺省为 `float64`（保持历史契约与高精度中间值）。
+ * 导出路径已知产物最终是 Float32，可直接用 `float32` 生成，
+ * 省掉每波段整幅的 Float64 缓冲（8 字节/像元 → 4 字节/像元）。
  */
 export function applyGridAggregationToBands(input: {
   bands: SupportedRasterArray[];
@@ -802,7 +806,8 @@ export function applyGridAggregationToBands(input: {
   noDataValue: number;
   metricTransform?: MetricTransform;
   rotationDeg?: number;
-}): { bands: Float64Array[]; maskedPixelCount: number } {
+  outputType?: 'float32' | 'float64';
+}): { bands: SupportedRasterArray[]; maskedPixelCount: number } {
   const {
     bands,
     aggregation,
@@ -827,6 +832,10 @@ export function applyGridAggregationToBands(input: {
   const [windowStartCol, windowStartRow] = window;
   const axes = buildMetricAxes(resolvedMetricTransform, window, width, height, origin, resolution);
 
+  const outputType = input.outputType ?? 'float64';
+  // Float32 输出时哨兵值会先被舍入，比较必须用舍入后的值，否则掩膜计数会漏
+  const storedNoDataValue = outputType === 'float32' ? Math.fround(noDataValue) : noDataValue;
+
   let gridCenterX = 0;
   let gridCenterY = 0;
   if (rotationRad !== 0) {
@@ -845,8 +854,9 @@ export function applyGridAggregationToBands(input: {
   } : null;
 
   const rewrittenBands = bands.map((band) => {
-    const nextBand = new Float64Array(band.length);
-    nextBand.fill(noDataValue);
+    const nextBand: Float64Array | Float32Array =
+      outputType === 'float32' ? new Float32Array(band.length) : new Float64Array(band.length);
+    nextBand.fill(storedNoDataValue);
 
     for (let row = 0; row < height; row += 1) {
       const base = row * width;
@@ -870,7 +880,7 @@ export function applyGridAggregationToBands(input: {
           const cellId = `r${cellRow}-c${segment.cellCol}`;
           const outputValue = aggregation.cellsById[cellId]?.outputValue ?? null;
           nextBand.fill(
-            outputValue === null ? noDataValue : outputValue,
+            outputValue === null ? storedNoDataValue : outputValue,
             base + segment.start,
             base + segment.end,
           );
@@ -918,7 +928,7 @@ export function applyGridAggregationToBands(input: {
 
         const cellId = `r${cellRow}-c${cellCol}`;
         const outputValue = aggregation.cellsById[cellId]?.outputValue ?? null;
-        nextBand[base + col] = outputValue === null ? noDataValue : outputValue;
+        nextBand[base + col] = outputValue === null ? storedNoDataValue : outputValue;
       }
     }
 
@@ -932,7 +942,7 @@ export function applyGridAggregationToBands(input: {
   if (sourceBand && rewrittenPrimaryBand) {
     for (let pixelIndex = 0; pixelIndex < rewrittenPrimaryBand.length; pixelIndex += 1) {
       if (
-        rewrittenPrimaryBand[pixelIndex] === noDataValue &&
+        rewrittenPrimaryBand[pixelIndex] === storedNoDataValue &&
         sourceBand[pixelIndex] !== noDataValue
       ) {
         maskedPixelCount += 1;

@@ -565,6 +565,84 @@ describe('gridAggregation', () => {
     expect(Array.from(result.bands[0])).toEqual([1.5, 1.5, 1.5, 1.5]);
   });
 
+  it('writes float32 output on request with the same values and mask count as float64', () => {
+    const aggregation: GridAggregationResult = {
+      cellsById: {
+        'r1-c0': {
+          cellId: 'r1-c0',
+          row: 1,
+          col: 0,
+          pixelCount: 1,
+          validPixelCount: 1,
+          sumValue: 10.25,
+          meanValue: 10.25,
+          minValue: 10.25,
+          maxValue: 10.25,
+          outputValue: 10.25,
+        },
+      },
+    };
+    const sharedInput = {
+      bands: [new Float32Array([1, 3, 5, 7])],
+      aggregation,
+      width: 2,
+      height: 2,
+      window: [0, 0, 2, 2] as [number, number, number, number],
+      origin,
+      resolution,
+      fenceRings,
+      gridCellWidth: 1,
+      gridCellHeight: 1,
+      noDataValue: -9999,
+    };
+
+    const float64Result = applyGridAggregationToBands(sharedInput);
+    const float32Result = applyGridAggregationToBands({ ...sharedInput, outputType: 'float32' });
+
+    expect(float64Result.bands[0]).toBeInstanceOf(Float64Array);
+    expect(float32Result.bands[0]).toBeInstanceOf(Float32Array);
+    expect(Array.from(float32Result.bands[0])).toEqual(Array.from(float64Result.bands[0]));
+    expect(float32Result.maskedPixelCount).toBe(float64Result.maskedPixelCount);
+  });
+
+  it('rounds the nodata sentinel for float32 output so masked pixels are still counted', () => {
+    // 0.1 无法被 Float32 精确表示：写入时会被舍入，掩膜比较必须用舍入后的值
+    const result = applyGridAggregationToBands({
+      bands: [new Float32Array([1, 2, 3, 4])],
+      aggregation: {
+        cellsById: {
+          'r1-c0': {
+            cellId: 'r1-c0',
+            row: 1,
+            col: 0,
+            pixelCount: 1,
+            validPixelCount: 1,
+            sumValue: 10,
+            meanValue: 10,
+            minValue: 10,
+            maxValue: 10,
+            outputValue: 10,
+          },
+        },
+      },
+      width: 2,
+      height: 2,
+      window: [0, 0, 2, 2],
+      origin,
+      resolution,
+      fenceRings,
+      gridCellWidth: 1,
+      gridCellHeight: 1,
+      noDataValue: 0.1,
+      outputType: 'float32',
+    });
+
+    expect(result.bands[0]).toBeInstanceOf(Float32Array);
+    expect(result.bands[0][0]).toBe(10);
+    expect(result.bands[0][1]).toBe(Math.fround(0.1));
+    expect(result.maskedPixelCount).toBe(3);
+  });
+
   it('aggregates geographic raster pixels by metric grid size instead of raw degree deltas', () => {
     const geographicFenceRings: FenceRings = [
       [

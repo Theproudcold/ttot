@@ -221,18 +221,16 @@ function writeSampleValue(
   throw new Error(`暂不支持的像元格式组合：SampleFormat=${sampleFormat}, BitsPerSample=${bitsPerSample}`);
 }
 
-function buildPixelData(
+/**
+ * 校验波段长度并计算像元数据区的字节数。
+ */
+function computePixelDataByteLength(
   bands: SupportedRasterArray[],
   bitsPerSample: number[],
-  sampleFormat: number[],
   width: number,
   height: number,
-): Uint8Array {
+): number {
   const pixelCount = width * height;
-  const bytesPerPixel = bitsPerSample.reduce((sum, bits) => sum + getBytesPerSample(bits), 0);
-  const buffer = new ArrayBuffer(pixelCount * bytesPerPixel);
-  const view = new DataView(buffer);
-  let offset = 0;
 
   bands.forEach((band) => {
     if (band.length !== pixelCount) {
@@ -240,21 +238,62 @@ function buildPixelData(
     }
   });
 
+  const bytesPerPixel = bitsPerSample.reduce((sum, bits) => sum + getBytesPerSample(bits), 0);
+  return pixelCount * bytesPerPixel;
+}
+
+/**
+ * 把像元数据直接写入目标缓冲区的指定偏移。
+ *
+ * 与旧实现（先建一整块像元缓冲、再拷进文件缓冲）相比，省掉了一份等大的中间缓冲；
+ * 全部波段都是 32 位浮点时改用 Float32Array 视图写入，免去逐样本的 DataView 调用。
+ */
+function writePixelDataInto(input: {
+  bytes: Uint8Array;
+  view: DataView;
+  offset: number;
+  bands: SupportedRasterArray[];
+  bitsPerSample: number[];
+  sampleFormat: number[];
+  pixelCount: number;
+}): void {
+  const { bytes, view, offset, bands, bitsPerSample, sampleFormat, pixelCount } = input;
+  const uniformFloat32 =
+    offset % 4 === 0 &&
+    bands.every(
+      (_band, bandIndex) =>
+        (sampleFormat[bandIndex] ?? 1) === 3 && (bitsPerSample[bandIndex] ?? 8) === 32,
+    );
+
+  if (uniformFloat32) {
+    const target = new Float32Array(bytes.buffer, offset, pixelCount * bands.length);
+
+    for (let pixelIndex = 0; pixelIndex < pixelCount; pixelIndex += 1) {
+      const targetOffset = pixelIndex * bands.length;
+
+      for (let bandIndex = 0; bandIndex < bands.length; bandIndex += 1) {
+        target[targetOffset + bandIndex] = bands[bandIndex]?.[pixelIndex] ?? 0;
+      }
+    }
+
+    return;
+  }
+
+  let sampleOffset = offset;
+
   for (let pixelIndex = 0; pixelIndex < pixelCount; pixelIndex += 1) {
     for (let bandIndex = 0; bandIndex < bands.length; bandIndex += 1) {
       const value = bands[bandIndex]?.[pixelIndex] ?? 0;
       writeSampleValue(
         view,
-        offset,
+        sampleOffset,
         value,
         sampleFormat[bandIndex] ?? sampleFormat[0] ?? 1,
         bitsPerSample[bandIndex] ?? bitsPerSample[0] ?? 8,
       );
-      offset += getBytesPerSample(bitsPerSample[bandIndex] ?? bitsPerSample[0] ?? 8);
+      sampleOffset += getBytesPerSample(bitsPerSample[bandIndex] ?? bitsPerSample[0] ?? 8);
     }
   }
-
-  return new Uint8Array(buffer);
 }
 
 export function writeGeoTiffBuffer(options: GeoTiffWriteOptions): ArrayBuffer {
@@ -280,7 +319,7 @@ export function writeGeoTiffBuffer(options: GeoTiffWriteOptions): ArrayBuffer {
     throw new Error('导出 GeoTIFF 时波段数量与 SamplesPerPixel 不一致');
   }
 
-  const pixelData = buildPixelData(bands, bitsPerSample, sampleFormat, width, height);
+  const pixelDataByteLength = computePixelDataByteLength(bands, bitsPerSample, width, height);
 
   const tags: TiffTag[] = [
     createInlineLongTag(256, width),
@@ -291,7 +330,7 @@ export function writeGeoTiffBuffer(options: GeoTiffWriteOptions): ArrayBuffer {
     createInlineLongTag(273, 0),
     createInlineShortTag(277, samplesPerPixel),
     createInlineLongTag(278, height),
-    createInlineLongTag(279, pixelData.byteLength),
+    createInlineLongTag(279, pixelDataByteLength),
     createInlineShortTag(284, 1),
     createShortArrayTag(339, sampleFormat),
     createDoubleArrayTag(33550, modelPixelScale),
@@ -350,9 +389,15 @@ export function writeGeoTiffBuffer(options: GeoTiffWriteOptions): ArrayBuffer {
     }
   }
 
+  // TIFF 只要求字对齐（2 字节）；这里对齐到 4 字节，
+  // 让像元数据可以直接用 Float32Array 视图写入（视图要求字节偏移是元素大小的整数倍）。
   nextDataOffset = ensureEvenOffset(nextDataOffset);
+  if (nextDataOffset % 4 !== 0) {
+    nextDataOffset += 4 - (nextDataOffset % 4);
+  }
+
   const pixelDataOffset = nextDataOffset;
-  const totalByteLength = pixelDataOffset + pixelData.byteLength;
+  const totalByteLength = pixelDataOffset + pixelDataByteLength;
   const buffer = new ArrayBuffer(totalByteLength);
   const view = new DataView(buffer);
   const bytes = new Uint8Array(buffer);
@@ -395,7 +440,15 @@ export function writeGeoTiffBuffer(options: GeoTiffWriteOptions): ArrayBuffer {
     }
   }
 
-  bytes.set(pixelData, pixelDataOffset);
+  writePixelDataInto({
+    bytes,
+    view,
+    offset: pixelDataOffset,
+    bands,
+    bitsPerSample,
+    sampleFormat,
+    pixelCount: width * height,
+  });
 
   return buffer;
 }

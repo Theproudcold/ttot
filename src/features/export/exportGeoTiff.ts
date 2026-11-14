@@ -122,8 +122,14 @@ export async function exportFenceGeoTiff(input: {
     metricTransform: metricTransform ?? undefined,
     aggregationMode,
     rotationDeg,
+    // 导出产物固定为 Float32（见下方 finalBands），因此直接用 Float32 生成改写波段，
+    // 不再为每个波段多留一份整幅 Float64 缓冲
+    outputType: 'float32',
   });
   const exportNoDataValue = masked.noDataValue;
+
+  // 源波段到此不再需要，尽早断开引用：多波段时这里是 N × 像元数 × 源位深字节
+  bands.length = 0;
 
   // 聚合产物是像元均值，可能包含小数，而源影像的整数位深无法表示这些值。
   // 若沿用源的 BitsPerSample/SampleFormat，writer 会按整数写入造成截断（有符号还会取模）。

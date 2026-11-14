@@ -324,9 +324,11 @@ export function applyGridAggregationToFenceWindowBands(input: {
   metricTransform?: MetricTransform;
   aggregationMode?: GridAggregationMode;
   rotationDeg?: number;
+  /** 输出波段类型，缺省 float64；导出路径已知产物为 Float32，可传 float32 省一半缓冲 */
+  outputType?: 'float32' | 'float64';
 }): {
   aggregation: GridAggregationResult;
-  bands: Float64Array[];
+  bands: SupportedRasterArray[];
   maskedPixelCount: number;
   noDataValue: number;
 } {
@@ -346,6 +348,7 @@ export function applyGridAggregationToFenceWindowBands(input: {
     metricTransform,
     aggregationMode,
     rotationDeg,
+    outputType,
   } = input;
 
   if (bands.length === 0) {
@@ -385,7 +388,7 @@ export function applyGridAggregationToFenceWindowBands(input: {
     throw new Error('导出需要 noDataValue 或 resolveNoDataValue 之一');
   }
 
-  const rewrittenBands: Float64Array[] = [];
+  const rewrittenBands: SupportedRasterArray[] = [];
   let maskedPixelCount = 0;
 
   bands.forEach((band, index) => {
@@ -403,6 +406,7 @@ export function applyGridAggregationToFenceWindowBands(input: {
       noDataValue: resolvedNoDataValue,
       metricTransform,
       rotationDeg,
+      outputType,
     });
 
     rewrittenBands.push(rewritten.bands[0]);
