@@ -8,7 +8,9 @@ import View from 'ol/View.js';
 import Draw from 'ol/interaction/Draw.js';
 import Modify from 'ol/interaction/Modify.js';
 import ImageLayer from 'ol/layer/Image.js';
+import Layer from 'ol/layer/Layer.js';
 import VectorLayer from 'ol/layer/Vector.js';
+import WebGLVectorLayer from 'ol/layer/WebGLVector.js';
 import MultiPoint from 'ol/geom/MultiPoint.js';
 import Polygon from 'ol/geom/Polygon.js';
 import Static from 'ol/source/ImageStatic.js';
@@ -62,6 +64,53 @@ import {
 } from './mapUtils';
 
 /**
+ * 网格要素上的样式属性名：WebGL 层用表达式读取，普通矢量层读同一批属性。
+ */
+const GRID_STYLE_PROPERTIES = {
+  fill: 'fillColor',
+  stroke: 'strokeColor',
+  strokeWidth: 'strokeWidth',
+} as const;
+
+let webglVectorSupport: boolean | null = null;
+
+/**
+ * 网格图层优先用 WebGL 渲染：5 万级多边形在 Canvas 矢量渲染下每次平移/缩放都要重放全部要素
+ * （实测 54600 格时主线程 89 次输入事件消耗约 1.7 s），WebGL 把这件事交给 GPU。
+ * 取不到 WebGL2 时回退普通矢量层，样式来源完全一致。
+ */
+function supportsWebglVectorLayer(): boolean {
+  if (webglVectorSupport !== null) {
+    return webglVectorSupport;
+  }
+
+  try {
+    webglVectorSupport = Boolean(document.createElement('canvas').getContext('webgl2'));
+  } catch {
+    webglVectorSupport = false;
+  }
+
+  return webglVectorSupport;
+}
+
+/**
+ * 把当前配色写到要素属性上。
+ * 样式不再挂在每个要素的 Style 对象上，WebGL 与矢量两种实现因此可以共用同一份要素数据。
+ */
+function applyGridFeatureStyle(
+  feature: Feature,
+  cell: GridCell,
+  classificationLayer: Parameters<typeof getGridCellStyleColors>[1],
+  settings: GridRenderSettings,
+): void {
+  const colors = getGridCellStyleColors(cell, classificationLayer, settings);
+
+  feature.set(GRID_STYLE_PROPERTIES.fill, colors.fillColor);
+  feature.set(GRID_STYLE_PROPERTIES.stroke, colors.strokeColor);
+  feature.set(GRID_STYLE_PROPERTIES.strokeWidth, settings.strokeWidth);
+}
+
+/**
  * useMap 是地图核心 Hook，负责：
  * 1. 创建并管理 OpenLayers Map 实例；
  * 2. 响应影像、围栏、网格、分类图层等状态变化，动态更新图层；
@@ -76,7 +125,7 @@ export function useMap(metadata: RasterMetadata | null) {
   const fenceSourceRef = useRef<VectorSource | null>(null);
   const fenceLayerRef = useRef<VectorLayer | null>(null);
   const gridSourceRef = useRef<VectorSource | null>(null);
-  const gridLayerRef = useRef<VectorLayer | null>(null);
+  const gridLayerRef = useRef<Layer | null>(null);
   const drawRef = useRef<Draw | null>(null);
   const modifyRef = useRef<Modify | null>(null);
   const setPointerText = useRasterStore((state) => state.setPointerText);
@@ -264,38 +313,47 @@ export function useMap(metadata: RasterMetadata | null) {
         }),
       }),
     });
-    const gridLayer = new VectorLayer({
-      source: gridSource,
-      visible: layers.grid,
-      zIndex: 2,
-      style: (feature) => {
-        const cell = feature.get('gridCell') as GridCell | undefined;
-        if (!cell) {
-          return new Style({
-            stroke: new Stroke({ color: 'rgba(0, 0, 0, 0)', width: 1 }),
-            fill: new Fill({ color: 'rgba(0, 0, 0, 0)' }),
-          });
-        }
+    const gridLayer: Layer = supportsWebglVectorLayer()
+      ? new WebGLVectorLayer({
+          source: gridSource,
+          visible: layers.grid,
+          zIndex: 2,
+          style: {
+            'fill-color': ['get', GRID_STYLE_PROPERTIES.fill],
+            'stroke-color': ['get', GRID_STYLE_PROPERTIES.stroke],
+            'stroke-width': ['get', GRID_STYLE_PROPERTIES.strokeWidth],
+          },
+        })
+      : new VectorLayer({
+          source: gridSource,
+          visible: layers.grid,
+          zIndex: 2,
+          // 缓存键改为「配色组合」：大量网格共用少数几种配色，
+          // 命中率比按要素 id 缓存更高，也不再随网格数量增长
+          style: (feature) => {
+            const fillColor = feature.get(GRID_STYLE_PROPERTIES.fill) as string | undefined;
+            const strokeColor = feature.get(GRID_STYLE_PROPERTIES.stroke) as string | undefined;
+            const strokeWidth = feature.get(GRID_STYLE_PROPERTIES.strokeWidth) as number | undefined;
 
-        const outputValue = cell.aggregation?.outputValue;
-        const cacheKey = `${cell.id}-${outputValue ?? 'na'}`;
-        const cached = gridStyleCacheRef.current.get(cacheKey);
-        if (cached) return cached;
+            if (!fillColor || !strokeColor) {
+              return new Style({
+                stroke: new Stroke({ color: 'rgba(0, 0, 0, 0)', width: 1 }),
+                fill: new Fill({ color: 'rgba(0, 0, 0, 0)' }),
+              });
+            }
 
-        const colors = getGridCellStyleColors(cell, visibleClassificationLayerRef.current, gridRenderSettingsRef.current);
-        const style = new Style({
-          stroke: new Stroke({
-            color: colors.strokeColor,
-            width: gridRenderSettingsRef.current.strokeWidth,
-          }),
-          fill: new Fill({
-            color: colors.fillColor,
-          }),
+            const cacheKey = `${fillColor}|${strokeColor}|${strokeWidth ?? 1}`;
+            const cached = gridStyleCacheRef.current.get(cacheKey);
+            if (cached) return cached;
+
+            const style = new Style({
+              stroke: new Stroke({ color: strokeColor, width: strokeWidth ?? 1 }),
+              fill: new Fill({ color: fillColor }),
+            });
+            gridStyleCacheRef.current.set(cacheKey, style);
+            return style;
+          },
         });
-        gridStyleCacheRef.current.set(cacheKey, style);
-        return style;
-      },
-    });
     map.addLayer(gridLayer);
     map.addLayer(fenceLayer);
 
@@ -657,6 +715,26 @@ export function useMap(metadata: RasterMetadata | null) {
 
   useEffect(() => {
     gridStyleCacheRef.current.clear();
+
+    // 配色变了要把属性刷到已有要素上：WebGL 层与矢量层都从这里取颜色
+    const source = gridSourceRef.current;
+    if (source) {
+      for (const feature of source.getFeatures()) {
+        const cell = feature.get('gridCell') as GridCell | undefined;
+        if (cell) {
+          applyGridFeatureStyle(
+            feature,
+            cell,
+            visibleClassificationLayerRef.current,
+            gridRenderSettingsRef.current,
+          );
+          feature.changed();
+        }
+      }
+
+      source.changed();
+    }
+
     gridLayerRef.current?.changed();
   }, [classificationLayers, gridCells, visibleClassificationLayerId, gridRenderSettings]);
 
@@ -718,12 +796,24 @@ export function useMap(metadata: RasterMetadata | null) {
           if (geometryChanged) {
             existing.setGeometry(new Polygon(cell.polygon));
           }
+          applyGridFeatureStyle(
+            existing,
+            cell,
+            visibleClassificationLayerRef.current,
+            gridRenderSettingsRef.current,
+          );
           existing.changed();
         } else {
           const feature = new Feature({
             geometry: new Polygon(cell.polygon),
             gridCell: cell,
           });
+          applyGridFeatureStyle(
+            feature,
+            cell,
+            visibleClassificationLayerRef.current,
+            gridRenderSettingsRef.current,
+          );
           source.addFeature(feature);
         }
       }
