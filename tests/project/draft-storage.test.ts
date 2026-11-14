@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DRAFT_MAX_BYTES,
   DRAFT_STORAGE_KEY,
+  MAX_DRAFT_ENTRIES,
   clearDraft,
   createDraftScheduler,
   getTabId,
@@ -106,11 +107,65 @@ describe('writeDraft / readDraft', () => {
     expect(restored?.snapshot).toEqual(snapshot);
   });
 
-  it('does not overwrite a draft owned by another tab', () => {
-    writeDraft(makeSnapshot(), { storage, tabId: 'tab-1' });
+  it('keeps a separate draft per tab instead of letting one tab block another', () => {
+    // 早期实现用"单槽 + tabId 互斥"，后开的标签页会永远写不进去、工作静默丢失
+    expect(
+      writeDraft(makeSnapshot(), {
+        storage,
+        tabId: 'tab-1',
+        savedAt: '2026-01-01T00:00:00.000Z',
+      }),
+    ).toBe('written');
+    expect(
+      writeDraft(makeSnapshot({ grid: { cellSize: 7, rotation: 0, aggregationMode: 'max' } }), {
+        storage,
+        tabId: 'tab-2',
+        savedAt: '2026-01-02T00:00:00.000Z',
+      }),
+    ).toBe('written');
 
-    expect(writeDraft(makeSnapshot(), { storage, tabId: 'tab-2' })).toBe('skipped-other-tab');
-    expect(readDraft({ storage })?.tabId).toBe('tab-1');
+    // 默认读最新的一份
+    expect(readDraft({ storage })?.tabId).toBe('tab-2');
+    // 指定 tabId 时各读各的
+    expect(readDraft({ storage, tabId: 'tab-1' })?.snapshot.grid.cellSize).toBe(1);
+    expect(readDraft({ storage, tabId: 'tab-2' })?.snapshot.grid.cellSize).toBe(7);
+  });
+
+  it('prunes the oldest entries once too many tabs have written', () => {
+    for (let index = 0; index < MAX_DRAFT_ENTRIES + 2; index += 1) {
+      writeDraft(makeSnapshot(), {
+        storage,
+        tabId: `tab-${index}`,
+        savedAt: `2026-01-0${index + 1}T00:00:00.000Z`,
+      });
+    }
+
+    expect(readDraft({ storage, tabId: 'tab-0' })).toBeNull();
+    expect(readDraft({ storage, tabId: `tab-${MAX_DRAFT_ENTRIES + 1}` })).not.toBeNull();
+  });
+
+  it('reads a legacy single-record draft written by an older version', () => {
+    storage.setItem(
+      DRAFT_STORAGE_KEY,
+      JSON.stringify({
+        tabId: 'legacy-tab',
+        savedAt: '2026-01-01T00:00:00.000Z',
+        snapshot: makeSnapshot(),
+      }),
+    );
+
+    expect(readDraft({ storage })?.tabId).toBe('legacy-tab');
+    expect(readDraft({ storage, tabId: 'legacy-tab' })?.tabId).toBe('legacy-tab');
+  });
+
+  it('clears only the requested tab when a tabId is given', () => {
+    writeDraft(makeSnapshot(), { storage, tabId: 'tab-1' });
+    writeDraft(makeSnapshot(), { storage, tabId: 'tab-2' });
+
+    clearDraft({ storage, tabId: 'tab-1' });
+
+    expect(readDraft({ storage, tabId: 'tab-1' })).toBeNull();
+    expect(readDraft({ storage, tabId: 'tab-2' })).not.toBeNull();
   });
 
   it('lets the same tab overwrite its own draft', () => {
