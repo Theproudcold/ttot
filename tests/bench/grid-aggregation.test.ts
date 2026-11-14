@@ -90,7 +90,7 @@ function pixelCenter(
   return [originX + (col + 0.5) * resolutionX, originY + (row + 0.5) * resolutionY];
 }
 
-export function referenceAggregate(input: AggregationCase): GridAggregationResult {
+function referenceAggregate(input: AggregationCase): GridAggregationResult {
   const {
     width,
     height,
