@@ -186,7 +186,7 @@ describe('exportFenceGeoTiff', () => {
     expect(result.blob.type).toBe('image/tiff');
   });
 
-  it('rewrites every export band with the primary-band aggregated grid values before writing', async () => {
+  it('aggregates each export band independently instead of copying the primary band', async () => {
     const file = new File(['demo'], 'test2.tif', { type: 'image/tiff' });
     const image = {
       getWidth: () => 4,
@@ -251,7 +251,8 @@ describe('exportFenceGeoTiff', () => {
     );
     const multiBandCall = vi.mocked(writeGeoTiffBufferMock).mock.calls[0]?.[0];
     expect(multiBandCall?.bands[0]).toEqual(new Float32Array([1, 2, 3, 4]));
-    expect(multiBandCall?.bands[1]).toEqual(new Float32Array([1, 2, 3, 4]));
+    // 每个波段保留自己的网格均值；覆写成主波段值属于伪造数据
+    expect(multiBandCall?.bands[1]).toEqual(new Float32Array([11, 12, 13, 14]));
   });
 
   it('rewrites exported pixels to the aggregated grid mean values before writing', async () => {

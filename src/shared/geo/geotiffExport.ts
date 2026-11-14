@@ -413,21 +413,34 @@ export function applyGridAggregationToFenceWindowBands(input: {
     aggregationMode,
     rotationDeg,
   } = input;
-  const aggregation = buildGridAggregationFromFenceWindow({
-    bands,
-    window,
-    width,
-    height,
-    origin,
-    resolution,
-    fenceRings,
-    gridCellWidth,
-    gridCellHeight,
-    sourceNoDataValue,
-    metricTransform,
-    aggregationMode,
-    rotationDeg,
-  });
+
+  if (bands.length === 0) {
+    throw new Error('导出需要至少一个波段');
+  }
+
+  // 逐波段各自聚合：多波段影像的每个波段代表不同变量，
+  // 用主波段的聚合值覆写其余波段等于伪造数据（README 明确承诺多波段可用）。
+  // 代价是 N 倍聚合耗时，换来的是每个波段保留自己的网格均值。
+  const aggregations = bands.map((band) =>
+    buildGridAggregationFromFenceWindow({
+      bands: [band],
+      window,
+      width,
+      height,
+      origin,
+      resolution,
+      fenceRings,
+      gridCellWidth,
+      gridCellHeight,
+      sourceNoDataValue,
+      metricTransform,
+      aggregationMode,
+      rotationDeg,
+    }),
+  );
+
+  // 分类与处方波段始终以主波段为准
+  const aggregation = aggregations[0];
 
   let resolvedNoDataValue: number;
   if (resolveNoDataValue) {
@@ -438,26 +451,38 @@ export function applyGridAggregationToFenceWindowBands(input: {
     throw new Error('导出需要 noDataValue 或 resolveNoDataValue 之一');
   }
 
-  const rewritten = applyGridAggregationToBands({
-    bands,
-    aggregation,
-    width,
-    height,
-    window,
-    origin,
-    resolution,
-    fenceRings,
-    gridCellWidth,
-    gridCellHeight,
-    noDataValue: resolvedNoDataValue,
-    metricTransform,
-    rotationDeg,
+  const rewrittenBands: Float64Array[] = [];
+  let maskedPixelCount = 0;
+
+  bands.forEach((band, index) => {
+    const rewritten = applyGridAggregationToBands({
+      bands: [band],
+      aggregation: aggregations[index],
+      width,
+      height,
+      window,
+      origin,
+      resolution,
+      fenceRings,
+      gridCellWidth,
+      gridCellHeight,
+      noDataValue: resolvedNoDataValue,
+      metricTransform,
+      rotationDeg,
+    });
+
+    rewrittenBands.push(rewritten.bands[0]);
+
+    // 掩膜数量以主波段为准（与处方波段、GDAL_NODATA 口径一致）
+    if (index === 0) {
+      maskedPixelCount = rewritten.maskedPixelCount;
+    }
   });
 
   return {
     aggregation,
-    bands: rewritten.bands,
-    maskedPixelCount: rewritten.maskedPixelCount,
+    bands: rewrittenBands,
+    maskedPixelCount,
     noDataValue: resolvedNoDataValue,
   };
 }
