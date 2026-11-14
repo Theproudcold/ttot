@@ -169,6 +169,14 @@ export type RasterMetadata = {
 
 export type RasterLoadStatus = 'idle' | 'loading' | 'ready' | 'error';
 
+/**
+ * 可跨线程传递的元信息：`metricTransform` 含函数，无法结构化克隆，
+ * 因此传描述、由接收端用 createMetricTransformFromDescriptor 重建。
+ */
+export type RasterMetadataPayload = Omit<RasterMetadata, 'metricTransform'> & {
+  metricTransformDescriptor: MetricTransformDescriptor;
+};
+
 export type RasterGeoKeys = Partial<{
   GTCitationGeoKey: string;
   GeographicTypeGeoKey: number;
@@ -246,6 +254,24 @@ export type RasterWorkerRequest =
     }
   | {
       id: string;
+      type: 'load-metadata';
+      payload: {
+        source: File | string;
+        /** 内容指纹：与预览/掩膜共用解析会话 */
+        sourceKey?: string;
+      };
+    }
+  | {
+      id: string;
+      type: 'read-embedded-snapshot';
+      payload: {
+        source: File;
+        /** 内容指纹：避免为了读 tag 270 再留一份整文件缓冲 */
+        sourceKey?: string;
+      };
+    }
+  | {
+      id: string;
       type: 'export-geotiff';
       payload: {
         source: File;
@@ -295,6 +321,16 @@ export type RasterWorkerResponse =
       id: string;
       type: 'load-validity-mask';
       result: RasterValidityMask;
+    }
+  | {
+      id: string;
+      type: 'load-metadata';
+      result: RasterMetadataPayload;
+    }
+  | {
+      id: string;
+      type: 'read-embedded-snapshot';
+      result: import('@/features/project/projectSnapshot').SnapshotParseResult | null;
     }
   | {
       id: string;

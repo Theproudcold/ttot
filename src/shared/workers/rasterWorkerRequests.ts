@@ -1,8 +1,14 @@
+import { createMetricTransformFromDescriptor } from '@/shared/geo/crs';
 import type { MetricTransform } from '@/shared/geo/crs';
 import type { ProjectSnapshotV1 } from '@/features/project/projectSnapshot';
 import type { FenceRings } from '@/shared/types/fence';
 import type { GridAggregationMode } from '@/shared/types/grid';
-import type { RasterClassificationLayer, RasterWorkerRequest } from '@/shared/types/raster';
+import type {
+  RasterClassificationLayer,
+  RasterMetadata,
+  RasterMetadataPayload,
+  RasterWorkerRequest,
+} from '@/shared/types/raster';
 
 type AggregateGridPayload = Extract<RasterWorkerRequest, { type: 'aggregate-grid' }>['payload'];
 type ExportGeoTiffPayload = Extract<RasterWorkerRequest, { type: 'export-geotiff' }>['payload'];
@@ -66,5 +72,18 @@ export function buildExportGeoTiffPayload(input: {
     metricTransformDescriptor: input.metricTransform?.descriptor ?? null,
     rotationDeg: input.rotationDeg,
     projectSnapshot: input.projectSnapshot ?? null,
+  };
+}
+
+/**
+ * 把 Worker 返回的可克隆元信息还原成主线程使用的 RasterMetadata。
+ * 度量变换按描述重建，与 Worker 内使用的那份逐位一致。
+ */
+export function rebuildRasterMetadata(payload: RasterMetadataPayload): RasterMetadata {
+  const { metricTransformDescriptor, ...rest } = payload;
+
+  return {
+    ...rest,
+    metricTransform: createMetricTransformFromDescriptor(metricTransformDescriptor),
   };
 }

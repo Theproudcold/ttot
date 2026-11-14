@@ -1,10 +1,12 @@
 import { createMetricTransformFromDescriptor } from '@/shared/geo/crs';
 import { buildGeoTiffExportBytes } from '@/features/export/exportGeoTiff';
+import { readEmbeddedProjectSnapshotWithSession } from '@/features/project/readEmbeddedSnapshot';
 import { readFenceWindowWithCache } from '@/shared/geo/fenceWindow';
 import { aggregateGridCellsFromRasterWindow } from '@/shared/geo/gridAggregation';
 import { buildRasterClassificationPreviewRgba } from '@/shared/geo/rasterClassification';
 import {
   buildRasterValidityMask,
+  loadRasterMetadata,
   normalizeNoDataValue,
   openRasterSession,
 } from '@/shared/geo/rasterIo';
@@ -163,6 +165,33 @@ export async function handleRasterWorkerRequest(
     };
 
     return { response, transfer: [validityMask.data.buffer as Transferable] };
+  }
+
+  if (request.type === 'load-metadata') {
+    const { source } = request.payload;
+    const metadata = await loadRasterMetadata(source);
+    const { metricTransform, ...rest } = metadata;
+
+    const response: RasterWorkerResponse = {
+      id: request.id,
+      type: 'load-metadata',
+      result: { ...rest, metricTransformDescriptor: metricTransform.descriptor },
+    };
+
+    return { response, transfer: [] };
+  }
+
+  if (request.type === 'read-embedded-snapshot') {
+    const { source } = request.payload;
+    const result = await readEmbeddedProjectSnapshotWithSession(source);
+
+    const response: RasterWorkerResponse = {
+      id: request.id,
+      type: 'read-embedded-snapshot',
+      result,
+    };
+
+    return { response, transfer: [] };
   }
 
   if (request.type === 'export-geotiff') {

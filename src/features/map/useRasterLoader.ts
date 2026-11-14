@@ -13,7 +13,13 @@ import {
   loadRasterValidityMask,
 } from '@/shared/geo/raster';
 import { createPreviewDataUrl } from '@/shared/geo/rasterPreview';
-import { registerRasterWorker, unregisterRasterWorker } from '@/shared/workers/rasterWorkerRegistry';
+import {
+  createRasterWorkerJobId,
+  registerRasterWorker,
+  requestRasterWorker,
+  unregisterRasterWorker,
+} from '@/shared/workers/rasterWorkerRegistry';
+import { rebuildRasterMetadata } from '@/shared/workers/rasterWorkerRequests';
 import type { RasterPreview, RasterWorkerRequest, RasterWorkerResponse } from '@/shared/types/raster';
 
 import { useRasterStore } from './rasterStore';
@@ -115,16 +121,31 @@ export function useRasterLoader(options?: RasterLoaderOptions) {
       sourceId,
     });
 
-    loadRasterMetadata(sourceFile, (progress, phase) => {
-      if (!disposed) {
-        setLoadingProgress(phase, progress);
-        debugLog('loader', '元信息阶段进度', {
-          phase,
-          progress,
-          sourceId,
+    // 元信息交给 Worker 读取：主线程不再为一次解析常驻整文件缓冲。
+    // 取不到 Worker 时走同一条 loadRasterMetadata 实现（测试与降级路径）。
+    const metadataPromise = workerRef.current
+      ? requestRasterWorker<'load-metadata'>(workerRef.current, {
+          id: createRasterWorkerJobId(),
+          type: 'load-metadata',
+          payload: { source: sourceFile, sourceKey: buildRasterSourceKey(sourceFile) },
+        })
+          .then((response) => rebuildRasterMetadata(response.result))
+          .catch((error: unknown) => {
+            debugLog('loader', 'Worker 元信息读取失败，回退主线程', error);
+            return loadRasterMetadata(sourceFile);
+          })
+      : loadRasterMetadata(sourceFile, (progress, phase) => {
+          if (!disposed) {
+            setLoadingProgress(phase, progress);
+            debugLog('loader', '元信息阶段进度', {
+              phase,
+              progress,
+              sourceId,
+            });
+          }
         });
-      }
-    })
+
+    metadataPromise
       .then((nextMetadata) => {
         if (!disposed) {
           setMetadata(nextMetadata);
