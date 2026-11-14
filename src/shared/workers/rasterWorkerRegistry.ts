@@ -13,6 +13,16 @@ let jobSequence = 0;
 
 export function registerRasterWorker(kind: RasterWorkerKind, worker: Worker): void {
   workers.set(kind, worker);
+
+  // Worker 崩溃后不能继续被复用：出错即注销，后续请求走主线程回退，
+  // 否则会给一个死实例 postMessage 并一直等到超时。
+  worker.addEventListener(
+    'error',
+    () => {
+      unregisterRasterWorker(kind, worker);
+    },
+    { once: true },
+  );
 }
 
 export function unregisterRasterWorker(kind: RasterWorkerKind, worker: Worker): void {
