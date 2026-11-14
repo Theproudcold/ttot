@@ -16,6 +16,7 @@ vi.mock('geotiff', () => ({
 
 import { resetFenceWindowCache } from '@/shared/geo/fenceWindow';
 import { resetRasterSessionCache } from '@/shared/geo/rasterIo';
+import { buildGeoTiffExportBytes } from '@/features/export/exportGeoTiff';
 import { buildExportGeoTiffPayload } from '@/shared/workers/rasterWorkerRequests';
 import { handleRasterWorkerRequest } from '@/shared/workers/rasterWorkerTasks';
 import type { FenceRings } from '@/shared/types/fence';
@@ -180,5 +181,52 @@ describe('rasterWorkerTasks: export-geotiff', () => {
 
     expect(exportResult(response).bytes.byteLength).toBeGreaterThan(0);
     expect(readRastersSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('导出与窗口缓存的交互', () => {
+  beforeEach(() => {
+    imageState.bands = [Float32Array.from({ length: 16 }, (_value, index) => index + 1)];
+    fromArrayBufferMock.mockReset();
+    fromArrayBufferMock.mockResolvedValue({ getImage: vi.fn().mockResolvedValue(makeImage()) });
+    resetRasterSessionCache();
+    resetFenceWindowCache();
+  });
+
+  it('同一围栏连续导出两次都成功：导出不得清空缓存中的源波段', async () => {
+    const file = makeFile();
+    const input = { file, fenceRings: FENCE_RINGS, gridCellSize: 2, aggregationMode: 'mean' as const };
+
+    const first = await buildGeoTiffExportBytes(input);
+    expect(first.bytes.byteLength).toBeGreaterThan(0);
+
+    // 第二次会命中围栏窗口缓存；若导出清空了缓存里的 bands，这里会抛「导出需要至少一个波段」
+    const second = await buildGeoTiffExportBytes(input);
+    expect(second.bytes.byteLength).toBeGreaterThan(0);
+  });
+
+  it('导出之后同一窗口的聚合仍然可用', async () => {
+    const file = makeFile();
+    await buildGeoTiffExportBytes({ file, fenceRings: FENCE_RINGS, gridCellSize: 2, aggregationMode: 'mean' });
+
+    const { response } = await handleRasterWorkerRequest({
+      id: 'aggregate-after-export',
+      type: 'aggregate-grid',
+      payload: {
+        source: file,
+        fenceRings: FENCE_RINGS,
+        samples: [0],
+        metricTransformDescriptor: null,
+        gridCellWidth: 2,
+        gridCellHeight: 2,
+        aggregationMode: 'mean',
+        rotationDeg: 0,
+      },
+    });
+
+    expect(response.type).toBe('aggregate-grid');
+    if (response.type === 'aggregate-grid') {
+      expect(Object.keys(response.result.cellsById).length).toBeGreaterThan(0);
+    }
   });
 });

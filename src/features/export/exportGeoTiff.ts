@@ -153,8 +153,9 @@ export async function buildGeoTiffExportBytes(
   });
   const exportNoDataValue = masked.noDataValue;
 
-  // 源波段到此不再需要，尽早断开引用：多波段时这里是 N × 像元数 × 源位深字节
-  bands.length = 0;
+  // 注意：这里不能清空 bands 来"提前释放"——它来自围栏窗口缓存（readGeoTiffFenceWindow），
+  // 与缓存条目共用同一个数组，清空会让同一窗口的下一次聚合/导出读到空波段。
+  // 缓存本身按 LRU 有上限，源波段的释放交给它即可。
 
   // 聚合产物是像元均值，可能包含小数，而源影像的整数位深无法表示这些值。
   // 若沿用源的 BitsPerSample/SampleFormat，writer 会按整数写入造成截断（有符号还会取模）。
