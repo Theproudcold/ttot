@@ -244,6 +244,40 @@ describe('applyGridAggregationToFenceWindowBands', () => {  it('rewrites hit-cel
     expect(result.maskedPixelCount).toBe(0);
   });
 
+  it('float32 输出时把 NoData 哨兵同步舍入，避免 tag 与像素值不一致', () => {
+    // 0.1 无法被 Float32 精确表示：像素里存的是 Math.fround(0.1)，
+    // 返回给写 tag 的 noDataValue 也必须是同一个值，否则下游按等值比较认不出掩膜像元
+    const result = applyGridAggregationToFenceWindowBands({
+      bands: [new Float32Array([1, 3, 5, 7])],
+      window: [0, 0, 2, 2],
+      width: 2,
+      height: 2,
+      origin: [0, 2, 0],
+      resolution: [1, -1, 0],
+      // 只覆盖上半部分，下半部分留给掩膜
+      fenceRings: [
+        [
+          [0, 1],
+          [2, 1],
+          [2, 2],
+          [0, 2],
+          [0, 1],
+        ],
+      ],
+      gridCellWidth: 1,
+      gridCellHeight: 1,
+      sourceNoDataValue: null,
+      noDataValue: 0.1,
+      outputType: 'float32',
+    });
+
+    expect(result.bands[0]).toBeInstanceOf(Float32Array);
+    expect(result.noDataValue).toBe(Math.fround(0.1));
+    // 掩膜像元写入的就是舍入后的哨兵（与 tag 同值）
+    expect(Array.from(result.bands[0]).filter((value) => value === Math.fround(0.1)).length).toBeGreaterThan(0);
+    expect(result.maskedPixelCount).toBeGreaterThan(0);
+  });
+
   it('keeps geographic pixels in separate metric cells instead of collapsing them during rewrite', () => {
     const metricTransform = createMetricTransform({
       crsCode: 'EPSG:4326',

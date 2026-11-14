@@ -339,6 +339,11 @@ export function applyGridAggregationToFenceWindowBands(input: {
     throw new Error('导出需要 noDataValue 或 resolveNoDataValue 之一');
   }
 
+  // Float32 输出时，像素里写入的是舍入后的哨兵；返回给调用方的值（用于写
+  // GDAL_NODATA tag）也必须同步舍入，否则下游按等值比较会认不出掩膜像元。
+  const outputNoDataValue =
+    outputType === 'float32' ? Math.fround(resolvedNoDataValue) : resolvedNoDataValue;
+
   const rewrittenBands: SupportedRasterArray[] = [];
   let maskedPixelCount = 0;
 
@@ -354,7 +359,7 @@ export function applyGridAggregationToFenceWindowBands(input: {
       fenceRings,
       gridCellWidth,
       gridCellHeight,
-      noDataValue: resolvedNoDataValue,
+      noDataValue: outputNoDataValue,
       metricTransform,
       rotationDeg,
       outputType,
@@ -372,7 +377,7 @@ export function applyGridAggregationToFenceWindowBands(input: {
     aggregation,
     bands: rewrittenBands,
     maskedPixelCount,
-    noDataValue: resolvedNoDataValue,
+    noDataValue: outputNoDataValue,
   };
 }
 
