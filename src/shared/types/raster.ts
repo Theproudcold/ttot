@@ -275,8 +275,6 @@ export type RasterWorkerRequest =
       type: 'export-geotiff';
       payload: {
         source: File;
-        /** 内容指纹：与网格聚合共用解析会话与已解码的窗口 */
-        sourceKey?: string;
         fenceRings: import('@/shared/types/fence').FenceRings;
         gridCellSize: number;
         aggregationMode?: import('@/shared/types/grid').GridAggregationMode;

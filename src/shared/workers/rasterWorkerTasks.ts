@@ -195,7 +195,7 @@ export async function handleRasterWorkerRequest(
   }
 
   if (request.type === 'export-geotiff') {
-    const { source, sourceKey, fenceRings, gridCellSize, aggregationMode, filename, activeClassificationLayer, metricTransformDescriptor, rotationDeg, projectSnapshot } = request.payload;
+    const { source, fenceRings, gridCellSize, aggregationMode, filename, activeClassificationLayer, metricTransformDescriptor, rotationDeg, projectSnapshot } = request.payload;
     const result = await buildGeoTiffExportBytes({
       file: source,
       fenceRings,

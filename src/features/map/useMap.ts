@@ -43,7 +43,6 @@ import {
   findRasterClassificationMatch,
 } from '@/shared/geo/raster';
 import type { RasterMetadata, RasterWorkerRequest, RasterWorkerResponse } from '@/shared/types/raster';
-import type { RasterClassificationLayer } from '@/shared/types/raster';
 import type { FenceRings } from '@/shared/types/fence';
 import type { GridCell, GridRenderSettings } from '@/shared/types/grid';
 

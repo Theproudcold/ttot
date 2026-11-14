@@ -51,7 +51,6 @@ export function buildAggregateGridPayload(input: {
  */
 export function buildExportGeoTiffPayload(input: {
   file: File;
-  sourceKey?: string;
   fenceRings: FenceRings;
   gridCellSize: number;
   aggregationMode?: GridAggregationMode;
@@ -63,7 +62,6 @@ export function buildExportGeoTiffPayload(input: {
 }): ExportGeoTiffPayload {
   return {
     source: input.file,
-    sourceKey: input.sourceKey,
     fenceRings: input.fenceRings,
     gridCellSize: input.gridCellSize,
     aggregationMode: input.aggregationMode,

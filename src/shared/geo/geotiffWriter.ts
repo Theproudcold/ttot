@@ -56,13 +56,6 @@ type OffsetTag = {
 
 type TiffTag = InlineTag | OffsetTag;
 
-const TIFF_TYPE_SIZES: Record<TiffFieldType, number> = {
-  2: 1,
-  3: 2,
-  4: 4,
-  12: 8,
-};
-
 function ensureEvenOffset(offset: number): number {
   return offset % 2 === 0 ? offset : offset + 1;
 }
