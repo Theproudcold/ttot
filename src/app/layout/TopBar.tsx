@@ -6,6 +6,7 @@ import {
   downloadGeoJson,
 } from '@/features/export/exportGeoJson';
 import { downloadExportedGeoTiff, exportFenceGeoTiff } from '@/features/export/exportGeoTiff';
+import { exportProjectSnapshot } from '@/features/project/projectSnapshot';
 import { useFenceStore } from '@/features/fence/fenceStore';
 import { useGridStore } from '@/features/grid/gridStore';
 import { useLoadingStore } from '@/features/loading/loadingStore';
@@ -64,7 +65,27 @@ export function TopBar() {
     setGeoTiffMessage(null);
 
     try {
-      const { blob, filename } = await exportFenceGeoTiff({
+      // 把当前配方内嵌进导出文件：重新导入该文件即可还原设置
+      const raster = useRasterStore.getState();
+      const mapUi = useMapUiStore.getState();
+      const projectSnapshot = exportProjectSnapshot({
+        sourceFile,
+        sourceLabel: raster.sourceLabel,
+        metadata,
+        fenceRings: fence.geometry.coordinates,
+        grid: { cellSize, rotation, aggregationMode },
+        classification: {
+          layers: classificationLayers,
+          activeLayerId: activeClassificationLayerId,
+          visibleLayerId: mapUi.visibleClassificationLayerId,
+        },
+        view: {
+          layers: mapUi.layers,
+          gridRenderSettings: mapUi.gridRenderSettings,
+        },
+      });
+
+      const { blob, filename, warnings } = await exportFenceGeoTiff({
         file: sourceFile,
         fence,
         gridCellSize: cellSize,
@@ -72,9 +93,12 @@ export function TopBar() {
         activeClassificationLayer,
         metricTransform: metadata?.metricTransform ?? null,
         rotationDeg: rotation,
+        projectSnapshot,
       });
       await downloadExportedGeoTiff(blob, filename);
-      setGeoTiffMessage('GeoTIFF 导出完成');
+      setGeoTiffMessage(
+        warnings.length > 0 ? `GeoTIFF 导出完成（${warnings.join(' ')}）` : 'GeoTIFF 导出完成',
+      );
     } catch (error) {
       const detail = error instanceof Error ? error.message : '请稍后重试';
       setGeoTiffMessage(`GeoTIFF 导出失败：${detail}`);

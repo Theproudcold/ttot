@@ -92,6 +92,8 @@ export function LeftPanel() {
   const cellSizeRef = useRef(cellSize);
   const [localRotation, setLocalRotation] = useState(String(rotation));
   const debouncedRotation = useDebounce(localRotation, 300);
+  /** 只有用户改过输入才回写 store，避免用陈旧的防抖值覆盖外部还原 */
+  const rotationEditedRef = useRef(false);
 
   const minCellSize = getMinCellSizeFromMetadata(metadata);
 
@@ -124,13 +126,27 @@ export function LeftPanel() {
   }, [cellSize]);
 
   useEffect(() => {
+    rotationEditedRef.current = false;
     setLocalRotation(String(rotation));
   }, [rotation]);
 
   useEffect(() => {
+    // 外部还原 rotation（如恢复工程草稿）时，localRotation 会同步、但防抖值仍是旧值；
+    // 若此时无条件回写，就会把刚还原的 rotation 立刻覆盖回旧值。
+    if (!rotationEditedRef.current) {
+      return;
+    }
+
     const nextValue = Number(debouncedRotation);
-    if (Number.isFinite(nextValue) && nextValue !== rotation) {
-      setRotation(((nextValue % 360) + 360) % 360);
+    if (!Number.isFinite(nextValue)) {
+      return;
+    }
+
+    rotationEditedRef.current = false;
+
+    const normalized = ((nextValue % 360) + 360) % 360;
+    if (normalized !== rotation) {
+      setRotation(normalized);
     }
   }, [debouncedRotation, rotation, setRotation]);
 
@@ -341,7 +357,10 @@ export function LeftPanel() {
           max="180"
           step="1"
           value={localRotation}
-          onChange={(event) => setLocalRotation(event.target.value)}
+          onChange={(event) => {
+            rotationEditedRef.current = true;
+            setLocalRotation(event.target.value);
+          }}
         />
         <div className="metric-section metric-section--compact" style={{ marginTop: 12 }}>
           <dl className="metric-list metric-list--two-col">

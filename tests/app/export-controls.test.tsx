@@ -165,4 +165,40 @@ describe('ExportControls', () => {
       expect(screen.getByText('GeoTIFF 导出失败：围栏超出影像范围')).toBeInTheDocument();
     });
   });
+
+  it('embeds the current project snapshot and surfaces embed warnings', async () => {
+    act(() => {
+      useRasterStore.getState().selectFile(new File(['demo'], 'test2.tif', { type: 'image/tiff' }));
+      useFenceStore.getState().setFence([
+        [
+          [0, 0],
+          [10, 0],
+          [10, 20],
+          [0, 20],
+          [0, 0],
+        ],
+      ]);
+    });
+
+    vi.mocked(exportFenceGeoTiff).mockResolvedValueOnce({
+      blob: new Blob(['demo'], { type: 'image/tiff' }),
+      filename: 'test2-clipped.tif',
+      warnings: ['设置过大（约 40KB），已跳过内嵌，请另存工程文件。'],
+    });
+    vi.mocked(downloadExportedGeoTiff).mockResolvedValueOnce();
+
+    render(<TopBar />);
+
+    fireEvent.click(screen.getByRole('button', { name: '导出 GeoTIFF' }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/已跳过内嵌/)).toBeInTheDocument();
+    });
+
+    // 导出必须带上配方，否则导出文件无法还原设置
+    const call = vi.mocked(exportFenceGeoTiff).mock.calls[0]?.[0];
+    expect(call?.projectSnapshot?.kind).toBe('ttot-project');
+    expect(call?.projectSnapshot?.fence?.rings).toHaveLength(1);
+    expect(call?.projectSnapshot?.grid.cellSize).toBe(useGridStore.getState().cellSize);
+  });
 });
