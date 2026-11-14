@@ -197,4 +197,27 @@ describe('writeGeoTiffBuffer', () => {
     expect(extraSamples).toBe(1);
     expect(resolveDataBandCount(image.getSamplesPerPixel(), extraSamples)).toBe(1);
   });
+
+  it('does not mark real data bands as ExtraSamples on a multi-band image', async () => {
+    // 5 波段影像（蓝/绿/红/红边/近红外）：一个附加样本都不该声明，
+    // 否则读取端会把数据波段数算成 1
+    const bands = Array.from({ length: 5 }, (_, index) => new Float32Array([index + 1]));
+    const buffer = writeGeoTiffBuffer({
+      width: 1,
+      height: 1,
+      bands,
+      bitsPerSample: [32, 32, 32, 32, 32],
+      sampleFormat: [3, 3, 3, 3, 3],
+      samplesPerPixel: 5,
+      photometricInterpretation: 1,
+      modelPixelScale: [1, 1, 0],
+      modelTiepoint: [0, 0, 0, 0, 0, 0],
+    });
+
+    const image = await (await fromArrayBuffer(buffer)).getImage();
+    const extraSamples = countExtraSamples(image.getFileDirectory());
+
+    expect(extraSamples).toBe(0);
+    expect(resolveDataBandCount(image.getSamplesPerPixel(), extraSamples)).toBe(5);
+  });
 });

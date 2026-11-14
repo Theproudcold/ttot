@@ -298,8 +298,11 @@ export function writeGeoTiffBuffer(options: GeoTiffWriteOptions): ArrayBuffer {
     createDoubleArrayTag(33922, modelTiepoint),
   ];
 
+  // 只对"1 个数据波段 + 1 个追加波段"的历史调用方做推断（SamplesPerPixel = 2）。
+  // 三个波段以上的多波段影像不应声明附加样本：那些是真实数据波段，
+  // 把它们标成 ExtraSamples 会让读取端把数据波段数算成 1。
   const inferredExtraSamples =
-    samplesPerPixel > 1 && photometricInterpretation === 1 ? samplesPerPixel - 1 : 0;
+    samplesPerPixel === 2 && photometricInterpretation === 1 ? 1 : 0;
   const requestedExtraSamples =
     typeof extraSamplesCount === 'number' && Number.isFinite(extraSamplesCount)
       ? Math.max(0, Math.floor(extraSamplesCount))
