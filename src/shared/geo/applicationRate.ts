@@ -11,6 +11,14 @@
  *
  * 这样导出产物（处方波段、GeoJSON 的 fertilizerAmount）仍然只承载"每格用量"，
  * 下游无需改动；同时新的计量方式可以逐条规则启用。
+ *
+ * 接入状态（截至 2026-11）：
+ * - 已接入：`resolveCellAmount` 被 GeoTIFF 处方波段与 GeoJSON 导出使用，
+ *   `normalizeApplicationRateBasis/Unit` 被导出与工程快照校验使用；
+ * - 尚未接入：`summarizeApplicationRates`、`convertRate` 与
+ *   `APPLICATION_RATE_UNIT_LABELS` 是给「用量汇总」界面预留的 API，
+ *   目前只有测试引用；规则编辑器也还没有基准/单位控件，因此 `per-area`
+ *   只能通过还原工程快照进入。补上控件与汇总展示前，这些导出请勿当作在跑的业务逻辑。
  */
 
 import type { RasterClassificationRule } from '@/shared/types/raster';
@@ -36,6 +44,7 @@ const UNIT_VALUES: readonly ApplicationRateUnit[] = [
   'per-mu',
 ];
 
+/** 用量单位的中文标签（预留给用量汇总/编辑器界面，尚无生产调用方） */
 export const APPLICATION_RATE_UNIT_LABELS: Record<ApplicationRateUnit, string> = {
   'per-square-meter': '每平方米',
   'per-hectare': '每公顷',
@@ -64,6 +73,7 @@ export function getUnitSquareMeters(unit: ApplicationRateUnit): number {
 
 /**
  * 单位面积用量的单位换算。例如把 kg/亩 换成 kg/ha。
+ * 预留给用量汇总/编辑器界面，目前尚无生产调用方。
  */
 export function convertRate(
   value: number,
@@ -143,6 +153,7 @@ export type ApplicationRateSummary = {
 /**
  * 汇总各规则的命中格数、覆盖面积与总用量。
  * 界面展示与导出统计共用同一份口径，避免两处各算一套。
+ * 预留给用量汇总界面，目前尚无生产调用方。
  */
 export function summarizeApplicationRates(input: {
   rules: ReadonlyArray<ApplicationRateInput>;
