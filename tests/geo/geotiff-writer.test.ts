@@ -309,3 +309,35 @@ describe('writeGeoTiffBufferAsync', () => {
     expect(image.fileDirectory.Compression).toBe(1);
   });
 });
+
+describe('短 ASCII tag 值（GDAL_NODATA）', () => {
+  function buildOptions(gdalNoData: string) {
+    return {
+      width: 8,
+      height: 8,
+      bands: [new Float32Array(64).fill(0.5)],
+      bitsPerSample: [32],
+      sampleFormat: [3],
+      samplesPerPixel: 1,
+      photometricInterpretation: 1,
+      modelPixelScale: [1, 1, 0] as [number, number, number],
+      modelTiepoint: [0, 0, 0, 0, 8, 0] as [number, number, number, number, number, number],
+      gdalNoData,
+    };
+  }
+
+  // 不超过 4 字节的值按 TIFF 规范必须内联存放在 value 字段；
+  // 写成偏移会让读取端把偏移字节当成字符串。nodata 为 0 的影像（很常见）就命中这个坑。
+  for (const gdalNoData of ['0', '-1', 'NaN', '-9999']) {
+    it(`写入并读回 ${JSON.stringify(gdalNoData)}`, async () => {
+      const image = await (await fromArrayBuffer(writeGeoTiffBuffer(buildOptions(gdalNoData)))).getImage();
+      expect(image.fileDirectory.GDAL_NODATA).toBe(`${gdalNoData}\u0000`);
+    });
+  }
+
+  it('压缩路径同样正确', async () => {
+    const image = await (await fromArrayBuffer(await writeGeoTiffBufferAsync(buildOptions('0')))).getImage();
+    expect(image.fileDirectory.GDAL_NODATA).toBe('0\u0000');
+    expect(image.getGDALNoData()).toBe(0);
+  });
+});

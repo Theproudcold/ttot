@@ -309,6 +309,15 @@ type PixelDataWriter = {
   write: (bytes: Uint8Array, view: DataView, offset: number) => void;
 };
 
+/**
+ * TIFF 规定：不超过 4 字节的 tag 值直接内联存放在 IFD 条目的 value 字段里，
+ * 不是"value 字段存偏移"。写偏移会让合规读取端把偏移的字节当成值——
+ * 短字符串（如 GDAL_NODATA 的 "NaN"、"1"）因此会被读成乱码。
+ */
+function isInlineTagData(tag: TiffTag): boolean {
+  return 'data' in tag && tag.data.byteLength <= 4;
+}
+
 function assembleGeoTiff(options: GeoTiffWriteOptions, pixelData: PixelDataWriter): ArrayBuffer {
   const {
     width,
@@ -395,7 +404,7 @@ function assembleGeoTiff(options: GeoTiffWriteOptions, pixelData: PixelDataWrite
   const offsetTags = new Map<number, number>();
 
   for (const tag of tags) {
-    if ('data' in tag) {
+    if ('data' in tag && !isInlineTagData(tag)) {
       nextDataOffset = ensureEvenOffset(nextDataOffset);
       offsetTags.set(tag.tag, nextDataOffset);
       nextDataOffset += tag.data.byteLength;
@@ -433,6 +442,13 @@ function assembleGeoTiff(options: GeoTiffWriteOptions, pixelData: PixelDataWrite
     }
 
     if ('data' in tag) {
+      if (isInlineTagData(tag)) {
+        const inline = new Uint8Array(4);
+        inline.set(tag.data);
+        view.setUint32(entryOffset + 8, new DataView(inline.buffer).getUint32(0, true), true);
+        return;
+      }
+
       view.setUint32(entryOffset + 8, offsetTags.get(tag.tag) ?? 0, true);
       return;
     }
@@ -447,7 +463,7 @@ function assembleGeoTiff(options: GeoTiffWriteOptions, pixelData: PixelDataWrite
   view.setUint32(ifdOffset + 2 + entryCount * 12, 0, true);
 
   for (const tag of tags) {
-    if ('data' in tag) {
+    if ('data' in tag && !isInlineTagData(tag)) {
       const offset = offsetTags.get(tag.tag) ?? 0;
       bytes.set(tag.data, offset);
     }
