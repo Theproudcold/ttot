@@ -29,10 +29,12 @@ import {
 } from '@/features/map/debugLogger';
 import { ensureProjectionRegistered } from '@/shared/geo/crs';
 import { clipFenceToBoundingBox, clipFenceToValidityMask, getFenceSummary, isCoordinateInValidityMask, isFenceInsideValidityMask, isPointInFence } from '@/shared/geo/fence';
-import { buildGridAggregationFromFenceWindowAsync, readGeoTiffFenceWindow } from '@/shared/geo/geotiffExport';
+import { buildGridAggregationFromFenceWindowAsync } from '@/shared/geo/geotiffExport';
+import { readFenceWindowWithCache } from '@/shared/geo/fenceWindow';
 import { buildGridPreview } from '@/shared/geo/grid';
 import {
   buildRasterClassificationPreviewRgba,
+  buildRasterSourceKey,
   createPreviewDataUrl,
   findRasterClassificationMatch,
 } from '@/shared/geo/raster';
@@ -765,39 +767,36 @@ export function useMap(metadata: RasterMetadata | null) {
       void (async () => {
         try {
           useLoadingStore.getState().start('正在计算网格聚合...');
-          const fenceWindow = await measurePerformanceAsync('raster:fence-window', () =>
-            readGeoTiffFenceWindow({
-              file: sourceFile,
-              fenceRings: fence.geometry.coordinates,
-              samples: [0],
-            }),
-          );
-          if (disposed) {
-            return;
-          }
+          const fenceRings = fence.geometry.coordinates;
+          const sourceKey = buildRasterSourceKey(sourceFile);
 
-          useLoadingStore.getState().update('正在汇总网格像元...');
-          let aggregation: import('@/shared/types/grid').GridAggregationResult;
-
+          // Worker 不可用时的主线程路径：同样走带缓存的窗口读取
           const computeAggregationFallback = () =>
-            measurePerformanceAsync('grid:aggregation', () =>
-              buildGridAggregationFromFenceWindowAsync(
-                {
-                  ...fenceWindow,
-                  fenceRings: fence.geometry.coordinates,
-                  metricTransform,
-                  gridCellWidth: cellSize,
-                  gridCellHeight: cellSize,
-                  aggregationMode,
-                  rotationDeg: rotation,
-                },
-                {
-                  rowsPerChunk: 128,
-                },
+            measurePerformanceAsync('raster:fence-window', () =>
+              readFenceWindowWithCache({ source: sourceFile, sourceKey, fenceRings, samples: [0] }),
+            ).then((fenceWindow) =>
+              measurePerformanceAsync('grid:aggregation', () =>
+                buildGridAggregationFromFenceWindowAsync(
+                  {
+                    ...fenceWindow,
+                    fenceRings,
+                    metricTransform,
+                    gridCellWidth: cellSize,
+                    gridCellHeight: cellSize,
+                    aggregationMode,
+                    rotationDeg: rotation,
+                  },
+                  {
+                    rowsPerChunk: 128,
+                  },
+                ),
               ),
             );
 
+          let aggregation: import('@/shared/types/grid').GridAggregationResult;
+
           if (workerRef.current) {
+            useLoadingStore.getState().update('正在汇总网格像元...');
             aggregationJobIdRef.current += 1;
             const jobId = `${aggregationJobIdRef.current}`;
             try {
@@ -830,27 +829,14 @@ export function useMap(metadata: RasterMetadata | null) {
                   worker.removeEventListener('error', handleError);
                   reject(new Error('Worker aggregation timeout'));
                 }, 30000);
-                const primaryBand = fenceWindow.bands[0];
-                if (!primaryBand) {
-                  clearTimeout(timeout);
-                  worker.removeEventListener('message', handleMessage);
-                  worker.removeEventListener('error', handleError);
-                  reject(new Error('GeoTIFF 缺少主波段数据'));
-                  return;
-                }
-                const bandBuffer = primaryBand instanceof Float32Array ? primaryBand : new Float32Array(primaryBand);
                 const request: RasterWorkerRequest = {
                   id: jobId,
                   type: 'aggregate-grid',
                   payload: {
-                    fenceRings: fence.geometry.coordinates,
-                    window: fenceWindow.window,
-                    width: fenceWindow.width,
-                    height: fenceWindow.height,
-                    origin: fenceWindow.origin,
-                    resolution: fenceWindow.resolution,
-                    band: bandBuffer,
-                    noDataValue: fenceWindow.sourceNoDataValue,
+                    source: sourceFile,
+                    sourceKey,
+                    fenceRings,
+                    samples: [0],
                     metricTransform: metricTransform ?? null,
                     gridCellWidth: cellSize,
                     gridCellHeight: cellSize,
@@ -858,7 +844,7 @@ export function useMap(metadata: RasterMetadata | null) {
                     rotationDeg: rotation,
                   },
                 };
-                worker.postMessage(request, [bandBuffer.buffer as Transferable]);
+                worker.postMessage(request);
               });
             } catch (workerError) {
               debugLog('map', 'Worker 网格聚合失败，回退主线程', workerError);

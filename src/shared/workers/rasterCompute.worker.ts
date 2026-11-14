@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
 import { buildRasterClassificationPreviewRgba } from '@/shared/geo/rasterClassification';
+import { readFenceWindowWithCache } from '@/shared/geo/fenceWindow';
 import { aggregateGridCellsFromRasterWindow } from '@/shared/geo/gridAggregation';
 import {
   buildRasterValidityMask,
@@ -21,7 +22,7 @@ import type { RasterWorkerRequest, RasterWorkerResponse } from '@/shared/types/r
  * Web Worker：在后台线程执行纯栅格计算，避免阻塞主线程。
  * 支持任务：
  * 1. recolor-preview：单波段影像分类重着色
- * 2. aggregate-grid：栅格窗口网格聚合
+ * 2. aggregate-grid：解码围栏窗口（按窗口缓存）并做网格聚合
  * 3. load-preview：读取并构建影像预览（含 RGBA 与采样数据）
  * 4. load-validity-mask：读取并构建有效像元掩膜
  */
@@ -49,14 +50,10 @@ self.onmessage = async (event: MessageEvent<RasterWorkerRequest>) => {
 
     if (request.type === 'aggregate-grid') {
       const {
+        source,
+        sourceKey,
         fenceRings,
-        window,
-        width,
-        height,
-        origin,
-        resolution,
-        band,
-        noDataValue,
+        samples,
         metricTransform,
         gridCellWidth,
         gridCellHeight,
@@ -64,15 +61,24 @@ self.onmessage = async (event: MessageEvent<RasterWorkerRequest>) => {
         rotationDeg,
       } = request.payload;
 
+      // 解码与聚合都留在 Worker 内，解码结果按窗口缓存，
+      // 网格尺寸/旋转/聚合模式变化时不会重新解码，也不再需要把波段转移出线程。
+      const fenceWindow = await readFenceWindowWithCache({ source, sourceKey, fenceRings, samples });
+      const primaryBand = fenceWindow.bands[0];
+
+      if (!primaryBand) {
+        throw new Error('GeoTIFF 缺少主波段数据');
+      }
+
       const result = aggregateGridCellsFromRasterWindow({
         fenceRings,
-        window,
-        width,
-        height,
-        origin,
-        resolution,
-        band,
-        noDataValue,
+        window: fenceWindow.window,
+        width: fenceWindow.width,
+        height: fenceWindow.height,
+        origin: fenceWindow.origin,
+        resolution: fenceWindow.resolution,
+        band: primaryBand,
+        noDataValue: fenceWindow.sourceNoDataValue,
         metricTransform: metricTransform ?? undefined,
         gridCellWidth,
         gridCellHeight,
@@ -86,7 +92,7 @@ self.onmessage = async (event: MessageEvent<RasterWorkerRequest>) => {
         result,
       };
 
-      postMessage(response, [band.buffer as Transferable]);
+      postMessage(response);
       return;
     }
 

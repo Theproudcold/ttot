@@ -4,6 +4,20 @@ export type RasterBoundingBox = [number, number, number, number];
 export type RasterOrigin = [number, number, number?];
 export type RasterResolution = [number, number, number?];
 
+/** 像素窗口：[起始列, 起始行, 结束列, 结束行]。 */
+export type PixelWindow = [number, number, number, number];
+
+/** 栅格波段支持的数组类型。 */
+export type SupportedRasterArray =
+  | Uint8Array
+  | Uint16Array
+  | Uint32Array
+  | Int8Array
+  | Int16Array
+  | Int32Array
+  | Float32Array
+  | Float64Array;
+
 export type RasterCellSize = {
   x: number;
   y: number;
@@ -189,14 +203,12 @@ export type RasterWorkerRequest =
       id: string;
       type: 'aggregate-grid';
       payload: {
+        source: File | string;
+        /** 内容指纹：让 Worker 跨请求复用解析会话与已解码的窗口 */
+        sourceKey?: string;
         fenceRings: import('@/shared/types/fence').FenceRings;
-        window: [number, number, number, number];
-        width: number;
-        height: number;
-        origin: RasterOrigin;
-        resolution: RasterResolution;
-        band: Float32Array;
-        noDataValue: number | null;
+        /** 参与聚合的波段序号，缺省为 [0] */
+        samples?: number[];
         metricTransform: MetricTransform | null;
         gridCellWidth: number;
         gridCellHeight: number;

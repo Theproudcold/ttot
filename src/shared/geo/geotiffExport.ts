@@ -6,21 +6,18 @@ import {
   applyGridAggregationToBands,
 } from '@/shared/geo/gridAggregation';
 import { openRasterSession } from '@/shared/geo/raster';
-import type { FenceBoundingBox, FencePosition, FenceRings } from '@/shared/types/fence';
+import { getPixelWindowFromFenceBoundingBox } from '@/shared/geo/rasterWindow';
+import type { FencePosition, FenceRings } from '@/shared/types/fence';
 import type { GridAggregationMode, GridAggregationResult } from '@/shared/types/grid';
-import type { RasterOrigin, RasterResolution } from '@/shared/types/raster';
+import type {
+  PixelWindow,
+  RasterOrigin,
+  RasterResolution,
+  SupportedRasterArray,
+} from '@/shared/types/raster';
 
-export type SupportedRasterArray =
-  | Uint8Array
-  | Uint16Array
-  | Uint32Array
-  | Int8Array
-  | Int16Array
-  | Int32Array
-  | Float32Array
-  | Float64Array;
-
-export type PixelWindow = [number, number, number, number];
+export { getPixelWindowFromFenceBoundingBox } from '@/shared/geo/rasterWindow';
+export type { PixelWindow, SupportedRasterArray } from '@/shared/types/raster';
 
 export type GeoTiffFenceWindowData = {
   window: PixelWindow;
@@ -35,29 +32,6 @@ export type GeoTiffFenceWindowData = {
   samplesPerPixel: number;
   fileDirectory: Record<string, unknown>;
 };
-
-function getRasterExtent(
-  rasterWidth: number,
-  rasterHeight: number,
-  origin: RasterOrigin,
-  resolution: RasterResolution,
-): FenceBoundingBox {
-  const [originX, originY] = origin;
-  const [resolutionX, resolutionY] = resolution;
-  const maxX = originX + rasterWidth * resolutionX;
-  const minY = originY + rasterHeight * resolutionY;
-
-  return [
-    Math.min(originX, maxX),
-    Math.min(originY, minY),
-    Math.max(originX, maxX),
-    Math.max(originY, minY),
-  ];
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
 
 function normalizeRasterBands(rasters: unknown): SupportedRasterArray[] {
   if (!Array.isArray(rasters)) {
@@ -167,46 +141,6 @@ function getNoDataCandidates(sampleFormat: number, bitsPerSample: number): numbe
 
   const max = 2 ** bitsPerSample - 1;
   return [max, 0];
-}
-
-export function getPixelWindowFromFenceBoundingBox(input: {
-  bbox: FenceBoundingBox;
-  rasterWidth: number;
-  rasterHeight: number;
-  origin: RasterOrigin;
-  resolution: RasterResolution;
-}): PixelWindow {
-  const { bbox, rasterWidth, rasterHeight, origin, resolution } = input;
-  const [minX, minY, maxX, maxY] = bbox;
-  const [originX, originY] = origin;
-  const [resolutionX, resolutionY] = resolution;
-  const [rasterMinX, rasterMinY, rasterMaxX, rasterMaxY] = getRasterExtent(
-    rasterWidth,
-    rasterHeight,
-    origin,
-    resolution,
-  );
-
-  if (maxX <= rasterMinX || minX >= rasterMaxX || maxY <= rasterMinY || minY >= rasterMaxY) {
-    throw new Error('围栏超出影像范围');
-  }
-
-  const safeResolutionX = resolutionX || Number.EPSILON;
-  const safeResolutionY = resolutionY || -Number.EPSILON;
-
-  // 行列增长方向由 resolution 的符号决定（常见为 north-up，即 resolutionY < 0）。
-  // 先算出边界对应的两端坐标再排序，避免对 south-up 栅格推导出退化的窗口。
-  const colA = (minX - originX) / safeResolutionX;
-  const colB = (maxX - originX) / safeResolutionX;
-  const rowA = (maxY - originY) / safeResolutionY;
-  const rowB = (minY - originY) / safeResolutionY;
-
-  const startCol = clamp(Math.floor(Math.min(colA, colB)), 0, rasterWidth - 1);
-  const endCol = clamp(Math.ceil(Math.max(colA, colB)), 1, rasterWidth);
-  const startRow = clamp(Math.floor(Math.min(rowA, rowB)), 0, rasterHeight - 1);
-  const endRow = clamp(Math.ceil(Math.max(rowA, rowB)), 1, rasterHeight);
-
-  return [Math.min(startCol, endCol - 1), Math.min(startRow, endRow - 1), endCol, endRow];
 }
 
 export async function readGeoTiffFenceWindow(input: {
