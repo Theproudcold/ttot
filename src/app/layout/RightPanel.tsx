@@ -4,16 +4,25 @@ import { useFenceStore } from '@/features/fence/fenceStore';
 import { useGridStore } from '@/features/grid/gridStore';
 import { useMapUiStore } from '@/features/map/mapUiStore';
 import { useRasterStore } from '@/features/map/rasterStore';
+import { summarizeApplicationRates } from '@/shared/geo/applicationRate';
+import { PREVIEW_RULE_SEMANTICS, findRuleMatch } from '@/shared/geo/classificationRuleMatching';
 import type { RasterRuleClassificationLayer } from '@/shared/types/raster';
 
 import {
+  APPLICATION_RATE_MODE_OPTIONS,
+  buildNewRulesClassificationLayer,
+  describeApplicationRateMode,
+  formatAreaWithMu,
+  formatCellAmount,
+  formatClassificationMode,
   formatFenceArea,
   formatFenceBbox,
   formatGridRatio,
   formatMetricNumber,
-  formatClassificationMode,
-  buildNewRulesClassificationLayer,
+  resolveApplicationRateMode,
   updateRuleTuple,
+  withApplicationRateMode,
+  type ApplicationRateMode,
 } from './right-panel/classificationUtils';
 import { ClassificationLayerNameInput } from './right-panel/ClassificationLayerNameInput';
 import { DebouncedColorPicker } from './right-panel/DebouncedColorPicker';
@@ -86,43 +95,45 @@ export function RightPanel() {
 
   const cellAreaM2 = cellSize > 0 ? cellSize * cellSize : 0;
 
+  function updateRuleMode(ruleIndex: number, mode: ApplicationRateMode) {
+    if (!activeClassificationLayer || activeClassificationLayer.mode !== 'rules') {
+      return;
+    }
+
+    updateClassificationLayer(activeClassificationLayer.id, {
+      rules: updateRuleTuple(activeClassificationLayer.rules, ruleIndex, (rule) =>
+        withApplicationRateMode(rule, mode),
+      ),
+    });
+  }
+
   const ruleStats = useMemo(() => {
     if (!activeClassificationLayer || activeClassificationLayer.mode !== 'rules' || gridCells.length === 0) {
       return null;
     }
+
     const rules = activeClassificationLayer.rules;
     const matchedCounts = new Array(rules.length).fill(0);
 
-    // 单次遍历网格，命中规则后立即 break，避免对同一像元重复判断后续规则
+    // 与地图着色使用同一判定口径（左闭右开），保证面板上的命中格数与看到的颜色一致
     for (const cell of gridCells) {
-      const val = cell.aggregation?.outputValue;
-      if (val == null) continue;
-      for (let i = 0; i < rules.length; i++) {
-        const rule = rules[i];
-        if (val >= rule.min && (rule.max === null || val <= rule.max)) {
-          matchedCounts[i]++;
-          break;
-        }
+      const value = cell.aggregation?.outputValue;
+      if (value == null) continue;
+
+      const match = findRuleMatch(rules, value, PREVIEW_RULE_SEMANTICS);
+      if (match) {
+        matchedCounts[match.index] += 1;
       }
     }
 
-    let totalMatchedCount = 0;
-    let totalFertilizerCents = 0;
-    const perRule: Array<{ matchedCount: number; areaM2: number; totalAmount: number }> = [];
+    // 用量统计与导出同源：单位面积速率会按格面积换算成每格用量
+    const summary = summarizeApplicationRates({ rules, matchedCounts, cellAreaM2 });
 
-    for (let i = 0; i < rules.length; i++) {
-      const rule = rules[i];
-      const matchedCount = matchedCounts[i];
-      const areaM2 = matchedCount * cellAreaM2;
-      const rateCents = Math.round((rule.applicationRate ?? 0) * 100);
-      const totalAmountCents = rateCents * matchedCount;
-      const totalAmount = totalAmountCents / 100;
-      totalMatchedCount += matchedCount;
-      totalFertilizerCents += totalAmountCents;
-      perRule.push({ matchedCount, areaM2, totalAmount });
-    }
-
-    return { perRule, totalArea: totalMatchedCount * cellAreaM2, totalFertilizer: totalFertilizerCents / 100 };
+    return {
+      perRule: summary.perRule,
+      totalArea: summary.totalAreaM2,
+      totalFertilizer: summary.totalAmount,
+    };
   }, [activeClassificationLayer, gridCells, cellAreaM2]);
 
   return (
@@ -179,7 +190,7 @@ export function RightPanel() {
               ))}
               <div className="metric-item" style={{ borderTop: '1px solid rgba(0,0,0,0.06)', paddingTop: '8px', marginTop: '4px' }}>
                 <dt className="metric-label">分类覆盖面积</dt>
-                <dd>{formatMetricNumber(ruleStats.totalArea)} m²</dd>
+                <dd>{formatAreaWithMu(ruleStats.totalArea)}</dd>
               </div>
               <div className="metric-item">
                 <dt className="metric-label">预计总用药量</dt>
@@ -356,6 +367,8 @@ export function RightPanel() {
                     const matchedCount = ruleStats?.perRule[index]?.matchedCount ?? 0;
                     const areaM2 = ruleStats?.perRule[index]?.areaM2 ?? 0;
                     const totalAmount = ruleStats?.perRule[index]?.totalAmount ?? 0;
+                    const cellAmount = ruleStats?.perRule[index]?.cellAmount ?? null;
+                    const rateMode = resolveApplicationRateMode(rule);
 
                     return (
                       <div key={`${activeClassificationLayer.id}-rule-${index}`} className="classification-rule" style={{ marginTop: '16px' }}>
@@ -390,16 +403,46 @@ export function RightPanel() {
                             />
                           </div>
                           <div style={{ display: 'flex', flexDirection: 'column' }}>
-                            <span className="field-label" style={{ fontSize: '10px' }}>单格用药量</span>
-                            <RuleNumberInput
-                              className="field-input"
-                              step="0.01"
-                              placeholder="例如: 200"
-                              value={rule.applicationRate}
-                              onChange={(nextValue) => {
-                                updateRuleField(index, 'applicationRate', nextValue);
-                              }}
-                            />
+                            <span className="field-label" style={{ fontSize: '10px' }}>
+                              {describeApplicationRateMode(rateMode)}
+                            </span>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <RuleNumberInput
+                                className="field-input"
+                                step="0.01"
+                                placeholder="例如: 200"
+                                value={rule.applicationRate}
+                                onChange={(nextValue) => {
+                                  updateRuleField(index, 'applicationRate', nextValue);
+                                }}
+                              />
+                              <select
+                                className="field-input"
+                                aria-label={`规则 ${index + 1} 计量方式`}
+                                style={{ width: 100 }}
+                                value={rateMode}
+                                onChange={(event) => {
+                                  updateRuleMode(index, event.target.value as ApplicationRateMode);
+                                }}
+                              >
+                                {APPLICATION_RATE_MODE_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            {rateMode === 'per-cell' ? (
+                              <span style={{ fontSize: 11, color: '#6b7280', marginTop: 4, lineHeight: 1.4 }}>
+                                该值随网格尺寸变化，建议改用单位面积用量
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: 11, color: '#6b7280', marginTop: 4, lineHeight: 1.4 }}>
+                                {cellAmount === null
+                                  ? '按当前网格换算后无有效用量'
+                                  : `≈ 每格 ${formatCellAmount(cellAmount)}（按 ${cellSize}m 网格）`}
+                              </span>
+                            )}
                           </div>
                           <div style={{ display: 'flex', flexDirection: 'column' }}>
                             <span className="field-label" style={{ fontSize: '10px' }}>规则颜色</span>

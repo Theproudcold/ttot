@@ -1,4 +1,9 @@
 import { getDegreeToMeterScale } from '@/shared/geo/crs';
+import {
+  normalizeApplicationRateBasis,
+  normalizeApplicationRateUnit,
+  type ApplicationRateUnit,
+} from '@/shared/geo/applicationRate';
 import type { RasterMetadata, RasterRuleClassificationLayer, RasterClassificationMode } from '@/shared/types/raster';
 
 /**
@@ -181,4 +186,95 @@ export function updateRuleTuple(
     ruleIndex === 0 ? updater(firstRule) : firstRule,
     ...restRules.map((rule, index) => (index + 1 === ruleIndex ? updater(rule) : rule)),
   ] as RasterRuleClassificationLayer['rules'];
+}
+
+// ---------------------------------------------------------------------------
+// 施用量计量方式
+// ---------------------------------------------------------------------------
+
+/** 界面上可选的四档计量方式：每格，或三种单位面积 */
+export type ApplicationRateMode = 'per-cell' | ApplicationRateUnit;
+
+export const APPLICATION_RATE_MODE_OPTIONS: ReadonlyArray<{
+  value: ApplicationRateMode;
+  label: string;
+}> = [
+  { value: 'per-cell', label: '每格用量' },
+  { value: 'per-mu', label: '每亩' },
+  { value: 'per-hectare', label: '每公顷' },
+  { value: 'per-square-meter', label: '每平方米' },
+];
+
+/** 1 亩 = 2000/3 m² */
+const SQUARE_METERS_PER_MU = 2000 / 3;
+
+/** 从规则读回界面上的计量方式 */
+export function resolveApplicationRateMode(rule: {
+  applicationRateBasis?: 'per-cell' | 'per-area';
+  applicationRateUnit?: ApplicationRateUnit;
+}): ApplicationRateMode {
+  if (normalizeApplicationRateBasis(rule.applicationRateBasis) === 'per-cell') {
+    return 'per-cell';
+  }
+
+  return normalizeApplicationRateUnit(rule.applicationRateUnit);
+}
+
+/** 字段标题：让"这个数字是什么量"写在标签里，而不是靠用户猜 */
+export function describeApplicationRateMode(mode: ApplicationRateMode): string {
+  switch (mode) {
+    case 'per-cell':
+      return '单格用量';
+    case 'per-mu':
+      return '每亩用量';
+    case 'per-hectare':
+      return '每公顷用量';
+    case 'per-square-meter':
+      return '每平方米用量';
+  }
+}
+
+/**
+ * 写入计量方式。切到"每格"时只改基准、保留单位，
+ * 这样用户来回切换不会丢掉之前选的面积单位。
+ */
+export function withApplicationRateMode<
+  T extends {
+    applicationRateBasis?: 'per-cell' | 'per-area';
+    applicationRateUnit?: ApplicationRateUnit;
+  },
+>(rule: T, mode: ApplicationRateMode): T {
+  if (mode === 'per-cell') {
+    return { ...rule, applicationRateBasis: 'per-cell' };
+  }
+
+  return { ...rule, applicationRateBasis: 'per-area', applicationRateUnit: mode };
+}
+
+/** 面积同时给出平方米与亩，避免用户自己换算 */
+export function formatAreaWithMu(areaM2: number): string {
+  if (!Number.isFinite(areaM2) || areaM2 <= 0) {
+    return '--';
+  }
+
+  const mu = areaM2 / SQUARE_METERS_PER_MU;
+  // 小面积时亩数很小（1 m² ≈ 0.0015 亩），沿用两位小数会显示成"约 0 亩"
+  const muText = mu >= 1 ? formatMetricNumber(mu) : formatCellAmount(mu);
+
+  return `${formatMetricNumber(areaM2)} m²（约 ${muText} 亩）`;
+}
+
+/**
+ * 每格用量的格式化。
+ * 单位面积速率换算到小网格后数值可能很小（每亩 4kg 落在 1m 网格上是 0.006），
+ * 沿用统计口径的两位小数会把它显示成 0.01，因此这里保留 3 位有效数字。
+ */
+export function formatCellAmount(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return '--';
+  }
+
+  const cleaned = Number.parseFloat(value.toPrecision(3));
+
+  return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 6 }).format(cleaned);
 }

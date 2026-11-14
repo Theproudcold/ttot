@@ -1,4 +1,4 @@
-import { act, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { RightPanel } from '@/app/layout/RightPanel';
@@ -7,7 +7,8 @@ import { useGridStore } from '@/features/grid/gridStore';
 import { useMapUiStore } from '@/features/map/mapUiStore';
 import { useRasterStore } from '@/features/map/rasterStore';
 import { createMetricTransform } from '@/shared/geo/crs';
-import type { RasterMetadata } from '@/shared/types/raster';
+import type { GridCell, GridSummary } from '@/shared/types/grid';
+import type { RasterMetadata, RasterRuleClassificationLayer } from '@/shared/types/raster';
 
 function createRasterMetadata(
   overrides: Partial<RasterMetadata> & Pick<RasterMetadata, 'boundingBox' | 'crsCode'>,
@@ -243,5 +244,122 @@ describe('RightPanel', () => {
     expect(within(getMetricItem('像元值')).getByText('0.13')).toBeInTheDocument();
     expect(within(getMetricItem('网格均值')).getByText('0.62')).toBeInTheDocument();
     expect(within(getMetricItem('有效像元数')).getByText('18')).toBeInTheDocument();
+  });
+
+  describe('application rate mode', () => {
+    const rulesLayer: RasterRuleClassificationLayer & { visible: boolean } = {
+      id: 'rules-a',
+      label: '规则方案',
+      noDataColor: '#00000000',
+      visible: true,
+      mode: 'rules',
+      gradientStops: [],
+      rules: [{ min: 0, max: null, color: '#226622', label: '高值', applicationRate: 4 }],
+    };
+
+    const cell: GridCell = {
+      id: 'r0-c0',
+      row: 0,
+      col: 0,
+      center: [0.5, 0.5],
+      polygon: [
+        [
+          [0, 0],
+          [1, 0],
+          [1, 1],
+          [0, 1],
+          [0, 0],
+        ],
+      ],
+      aggregation: {
+        cellId: 'r0-c0',
+        row: 0,
+        col: 0,
+        pixelCount: 1,
+        validPixelCount: 1,
+        sumValue: 0.5,
+        meanValue: 0.5,
+        minValue: 0.5,
+        maxValue: 0.5,
+        outputValue: 0.5,
+      },
+    };
+
+    const gridSummary: GridSummary = {
+      cellSize: 1,
+      rotation: 0,
+      rows: 1,
+      cols: 1,
+      totalCells: 1,
+      previewCellCount: 1,
+      isPreviewLimited: false,
+      previewStride: 1,
+      warning: null,
+    };
+
+    function setup() {
+      act(() => {
+        useMapUiStore.getState().addClassificationLayer(rulesLayer);
+        useMapUiStore.getState().setActiveClassificationLayer('rules-a');
+        useGridStore.getState().setPreview([cell], gridSummary, null);
+      });
+
+      render(<RightPanel />);
+    }
+
+    function readRule() {
+      const layer = useMapUiStore
+        .getState()
+        .classificationLayers.find((item) => item.id === 'rules-a');
+
+      if (!layer || layer.mode !== 'rules') {
+        throw new Error('规则方案丢失');
+      }
+
+      return layer.rules[0];
+    }
+
+    it('warns that a per-cell amount drifts with the grid size', () => {
+      setup();
+
+      expect(screen.getByText('单格用量')).toBeInTheDocument();
+      expect(screen.getByText('该值随网格尺寸变化，建议改用单位面积用量')).toBeInTheDocument();
+    });
+
+    it('switches a rule to a unit-area rate and previews the per-cell amount', () => {
+      setup();
+
+      fireEvent.change(screen.getByLabelText('规则 1 计量方式'), { target: { value: 'per-mu' } });
+
+      const rule = readRule();
+      expect(rule.applicationRateBasis).toBe('per-area');
+      expect(rule.applicationRateUnit).toBe('per-mu');
+      // 数值本身不变，只有含义变了
+      expect(rule.applicationRate).toBe(4);
+
+      expect(screen.getByText('每亩用量')).toBeInTheDocument();
+      // 4 kg/亩 × 1 m² ÷ 666.67 ≈ 0.006
+      expect(screen.getByText(/≈ 每格 0\.006/)).toBeInTheDocument();
+    });
+
+    it('keeps the chosen area unit when switching back to per-cell', () => {
+      setup();
+
+      fireEvent.change(screen.getByLabelText('规则 1 计量方式'), { target: { value: 'per-hectare' } });
+      fireEvent.change(screen.getByLabelText('规则 1 计量方式'), { target: { value: 'per-cell' } });
+
+      const rule = readRule();
+      expect(rule.applicationRateBasis).toBe('per-cell');
+      // 保留单位，方便来回切换
+      expect(rule.applicationRateUnit).toBe('per-hectare');
+      expect(screen.getByText('单格用量')).toBeInTheDocument();
+    });
+
+    it('reports the covered area in both square meters and mu', () => {
+      setup();
+
+      // 1 格 × 1 m² ≈ 0.0015 亩：小面积也要给出有意义的值，而不是"约 0 亩"
+      expect(screen.getByText(/1 m²（约 0\.0015 亩）/)).toBeInTheDocument();
+    });
   });
 });

@@ -1,13 +1,22 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LeftPanel } from '@/app/layout/LeftPanel';
 import { useFenceStore } from '@/features/fence/fenceStore';
 import { useGridStore } from '@/features/grid/gridStore';
 import { useMapUiStore } from '@/features/map/mapUiStore';
 import { useRasterStore } from '@/features/map/rasterStore';
+import { exportProjectSnapshot } from '@/features/project/projectSnapshot';
 import { createMetricTransform } from '@/shared/geo/crs';
 import type { RasterMetadata } from '@/shared/types/raster';
+
+const { readEmbeddedProjectSnapshotMock } = vi.hoisted(() => ({
+  readEmbeddedProjectSnapshotMock: vi.fn(),
+}));
+
+vi.mock('@/features/project/readEmbeddedSnapshot', () => ({
+  readEmbeddedProjectSnapshot: readEmbeddedProjectSnapshotMock,
+}));
 
 function createRasterMetadata(
   overrides: Partial<RasterMetadata> & Pick<RasterMetadata, 'boundingBox' | 'crsCode'>,
@@ -41,6 +50,11 @@ function createRasterMetadata(
 }
 
 describe('LeftPanel', () => {
+  beforeEach(() => {
+    // 默认：选中的影像没有内嵌配方
+    readEmbeddedProjectSnapshotMock.mockResolvedValue(null);
+  });
+
   afterEach(() => {
     act(() => {
       useRasterStore.getState().reset();
@@ -48,6 +62,7 @@ describe('LeftPanel', () => {
       useGridStore.getState().reset();
       useMapUiStore.getState().reset();
     });
+    readEmbeddedProjectSnapshotMock.mockReset();
     vi.useRealTimers();
   });
 
@@ -244,5 +259,247 @@ describe('LeftPanel', () => {
 
     expect(useGridStore.getState().cellSize).toBe(0.01);
     expect(input).toHaveDisplayValue('0.01');
+  });
+
+  it('keeps the existing fence and grid when a new raster is selected', () => {
+    // 这正是"导入自己导出的文件后一切归零"那条反馈的回归测试
+    act(() => {
+      useFenceStore.getState().setFence([
+        [
+          [0, 0],
+          [10, 0],
+          [10, 10],
+          [0, 10],
+          [0, 0],
+        ],
+      ]);
+      useGridStore.getState().setCellSize(4);
+    });
+
+    render(<LeftPanel />);
+
+    const input = document.getElementById('raster-file-input') as HTMLInputElement;
+    fireEvent.change(input, {
+      target: { files: [new File(['x'], 'new.tif', { type: 'image/tiff' })] },
+    });
+
+    expect(useFenceStore.getState().fence).not.toBeNull();
+    expect(useGridStore.getState().cellSize).toBe(4);
+  });
+
+  it('imports a fence from a GeoJSON file', async () => {
+    const rings = [
+      [
+        [0, 0],
+        [10, 0],
+        [10, 10],
+        [0, 10],
+        [0, 0],
+      ],
+    ];
+    const geojson = {
+      type: 'FeatureCollection',
+      features: [
+        { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: rings } },
+      ],
+    };
+
+    render(<LeftPanel />);
+
+    const input = document.getElementById('fence-geojson-input') as HTMLInputElement;
+
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File([JSON.stringify(geojson)], 'fence.geojson', { type: 'application/geo+json' }),
+        ],
+      },
+    });
+
+    // 读取走 FileReader，其回调不在微任务队列里，必须等它真正完成
+    await waitFor(() =>
+      expect(useFenceStore.getState().fence?.geometry.coordinates).toEqual(rings),
+    );
+    expect(screen.getByLabelText('import-notice').textContent).toContain('已导入围栏');
+  });
+
+  it('reports why a grid GeoJSON cannot be used as a fence', async () => {
+    const cell = [
+      [
+        [0, 0],
+        [1, 0],
+        [1, 1],
+        [0, 1],
+        [0, 0],
+      ],
+    ];
+    const gridFile = {
+      type: 'FeatureCollection',
+      features: [
+        { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: cell } },
+        { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: cell } },
+      ],
+    };
+
+    render(<LeftPanel />);
+    const input = document.getElementById('fence-geojson-input') as HTMLInputElement;
+
+    fireEvent.change(input, {
+      target: { files: [new File([JSON.stringify(gridFile)], 'grid.geojson', { type: 'application/geo+json' })] },
+    });
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('import-notice').textContent).toContain('网格导出'),
+    );
+    expect(useFenceStore.getState().fence).toBeNull();
+  });
+
+  it('offers to restore the project settings embedded in an exported TIFF', async () => {
+    const snapshot = exportProjectSnapshot({
+      sourceFile: null,
+      sourceLabel: '未选择文件',
+      metadata: null,
+      fenceRings: [
+        [
+          [0, 0],
+          [10, 0],
+          [10, 10],
+          [0, 10],
+          [0, 0],
+        ],
+      ],
+      grid: { cellSize: 3, rotation: 20, aggregationMode: 'max' },
+      classification: { layers: [], activeLayerId: null, visibleLayerId: null },
+      view: {
+        layers: { raster: true, fence: true, grid: true },
+        gridRenderSettings: {
+          useClassificationColors: true,
+          fillColor: '#3388ff',
+          fillOpacity: 0.3,
+          strokeColor: '#3388ff',
+          strokeOpacity: 0.8,
+          strokeWidth: 1,
+        },
+      },
+    });
+    readEmbeddedProjectSnapshotMock.mockResolvedValue({ ok: true, snapshot, warnings: [] });
+
+    render(<LeftPanel />);
+
+    const input = document.getElementById('raster-file-input') as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(input, {
+        target: { files: [new File(['x'], 'exported.tif', { type: 'image/tiff' })] },
+      });
+    });
+
+    // 必须先确认，不能静默改设置
+    expect(screen.getByLabelText('project-restore')).toBeInTheDocument();
+    expect(useGridStore.getState().cellSize).toBe(1);
+
+    fireEvent.click(screen.getByRole('button', { name: '还原' }));
+
+    expect(useGridStore.getState().cellSize).toBe(3);
+    expect(useGridStore.getState().rotation).toBe(20);
+    expect(useGridStore.getState().aggregationMode).toBe('max');
+    expect(useFenceStore.getState().fence).not.toBeNull();
+    expect(screen.queryByLabelText('project-restore')).not.toBeInTheDocument();
+  });
+
+  it('refuses to restore settings when the coordinate system differs', async () => {
+    const snapshot = exportProjectSnapshot({
+      sourceFile: new File(['x'], 'source.tif', { type: 'image/tiff' }),
+      sourceLabel: 'source.tif',
+      metadata: createRasterMetadata({
+        boundingBox: [119.4, 36.5, 119.5, 36.6],
+        crsCode: 'EPSG:4326',
+        resolution: [0.0001, -0.0001, 0],
+      }),
+      fenceRings: [
+        [
+          [119.45, 36.55],
+          [119.46, 36.55],
+          [119.46, 36.56],
+          [119.45, 36.56],
+          [119.45, 36.55],
+        ],
+      ],
+      grid: { cellSize: 7, rotation: 0, aggregationMode: 'mean' },
+      classification: { layers: [], activeLayerId: null, visibleLayerId: null },
+      view: {
+        layers: { raster: true, fence: true, grid: true },
+        gridRenderSettings: {
+          useClassificationColors: true,
+          fillColor: '#3388ff',
+          fillOpacity: 0.3,
+          strokeColor: '#3388ff',
+          strokeOpacity: 0.8,
+          strokeWidth: 1,
+        },
+      },
+    });
+    readEmbeddedProjectSnapshotMock.mockResolvedValue({ ok: true, snapshot, warnings: [] });
+
+    render(<LeftPanel />);
+    const input = document.getElementById('raster-file-input') as HTMLInputElement;
+
+    await act(async () => {
+      fireEvent.change(input, {
+        target: { files: [new File(['x'], 'other.tif', { type: 'image/tiff' })] },
+      });
+    });
+
+    // 真实加载顺序：提示出现时元信息尚未就绪，稍后才有坐标系。
+    // 当前影像是投影坐标系，且范围足以覆盖围栏——因此这里只有 CRS 一项触发拦截。
+    act(() => {
+      useRasterStore.getState().setMetadata(
+        createRasterMetadata({ boundingBox: [0, 0, 200, 200], crsCode: 'EPSG:4549', resolution: [1, -1, 0] }),
+      );
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '还原' }));
+
+    const notice = screen.getByLabelText('import-notice').textContent ?? '';
+    expect(notice).toContain('坐标系不一致');
+    expect(notice).not.toContain('围栏超出影像范围');
+    // 坐标系不一致会导致网格整体偏移，宁可不还原
+    expect(useGridStore.getState().cellSize).toBe(1);
+  });
+
+  it('leaves settings untouched when the embedded restore is declined', async () => {
+    const snapshot = exportProjectSnapshot({
+      sourceFile: null,
+      sourceLabel: '未选择文件',
+      metadata: null,
+      fenceRings: null,
+      grid: { cellSize: 9, rotation: 0, aggregationMode: 'mean' },
+      classification: { layers: [], activeLayerId: null, visibleLayerId: null },
+      view: {
+        layers: { raster: true, fence: true, grid: true },
+        gridRenderSettings: {
+          useClassificationColors: true,
+          fillColor: '#3388ff',
+          fillOpacity: 0.3,
+          strokeColor: '#3388ff',
+          strokeOpacity: 0.8,
+          strokeWidth: 1,
+        },
+      },
+    });
+    readEmbeddedProjectSnapshotMock.mockResolvedValue({ ok: true, snapshot, warnings: [] });
+
+    render(<LeftPanel />);
+    const input = document.getElementById('raster-file-input') as HTMLInputElement;
+
+    await act(async () => {
+      fireEvent.change(input, {
+        target: { files: [new File(['x'], 'exported.tif', { type: 'image/tiff' })] },
+      });
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '忽略' }));
+
+    expect(useGridStore.getState().cellSize).toBe(1);
+    expect(screen.queryByLabelText('project-restore')).not.toBeInTheDocument();
   });
 });

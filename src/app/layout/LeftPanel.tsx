@@ -6,7 +6,14 @@ import { useFenceStore } from '@/features/fence/fenceStore';
 import { useGridStore } from '@/features/grid/gridStore';
 import { useMapUiStore } from '@/features/map/mapUiStore';
 import { useRasterStore } from '@/features/map/rasterStore';
+import { applyProjectSnapshot } from '@/features/project/applyProjectSnapshot';
+import { readProjectSnapshotFromGeoJson } from '@/features/project/geojsonProject';
+import { readEmbeddedProjectSnapshot } from '@/features/project/readEmbeddedSnapshot';
+import type { ProjectSnapshotV1 } from '@/features/project/projectSnapshot';
+import { buildRestorePlan, fingerprintFromFile } from '@/features/project/projectSnapshot';
 import { getDegreeToMeterScale, getMinCellSizeFromMetadata } from '@/shared/geo/crs';
+import { parseFenceGeoJson } from '@/shared/geo/geojsonImport';
+import { readBlobBuffer } from '@/shared/geo/rasterIo';
 import type { RasterMetadata } from '@/shared/types/raster';
 
 function formatCellSize(metadata: RasterMetadata | null | undefined): string {
@@ -75,6 +82,7 @@ export function LeftPanel() {
   const startEdit = useFenceStore((state) => state.startEdit);
   const stopInteraction = useFenceStore((state) => state.stopInteraction);
   const clearFence = useFenceStore((state) => state.clearFence);
+  const setFence = useFenceStore((state) => state.setFence);
   const resetFence = useFenceStore((state) => state.reset);
   const cellSize = useGridStore((state) => state.cellSize);
   const rotation = useGridStore((state) => state.rotation);
@@ -94,6 +102,108 @@ export function LeftPanel() {
   const debouncedRotation = useDebounce(localRotation, 300);
   /** 只有用户改过输入才回写 store，避免用陈旧的防抖值覆盖外部还原 */
   const rotationEditedRef = useRef(false);
+
+  const [pendingRestore, setPendingRestore] = useState<{
+    snapshot: ProjectSnapshotV1;
+    label: string;
+  } | null>(null);
+  const [importNotice, setImportNotice] = useState<string[]>([]);
+
+  /**
+   * 选择影像。
+   *
+   * 刻意**不再**清空围栏/网格/分类方案：清空的后果就是「导入自己导出的文件后一切归零」。
+   * 若新影像与既有围栏不匹配，网格聚合会因「围栏超出影像范围」而回退为纯几何预览。
+   */
+  const handleRasterFile = (file: File) => {
+    setImportNotice([]);
+    setPendingRestore(null);
+    selectFile(file);
+
+    void readEmbeddedProjectSnapshot(file)
+      .then((result) => {
+        if (!result) {
+          return; // 普通影像，没有内嵌配方
+        }
+
+        if (result.ok) {
+          setPendingRestore({ snapshot: result.snapshot, label: file.name });
+        } else {
+          setImportNotice(result.errors);
+        }
+      })
+      .catch(() => {
+        // 无法解析为 GeoTIFF 时交给既有加载流程报错，这里不重复提示
+      });
+  };
+
+  const handleGeoJsonFile = async (file: File) => {
+    setImportNotice([]);
+
+    // 不用 file.text()：部分环境（含 jsdom）没有实现 Blob.text，统一走既有的 FileReader 封装
+    let text: string;
+    try {
+      text = new TextDecoder().decode(await readBlobBuffer(file));
+    } catch {
+      setImportNotice(['无法读取文件内容。']);
+      return;
+    }
+
+    let json: unknown;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      setImportNotice(['文件不是合法的 JSON']);
+      return;
+    }
+
+    const fenceResult = parseFenceGeoJson(json);
+    const projectResult = readProjectSnapshotFromGeoJson(json);
+    const notices = [...projectResult.warnings];
+
+    if (!fenceResult.ok) {
+      setImportNotice([...notices, ...fenceResult.errors]);
+      return;
+    }
+
+    notices.push(...fenceResult.warnings);
+
+    if (fenceResult.rings) {
+      setFence(fenceResult.rings);
+      notices.push(`已导入围栏：${(fenceResult.rings[0]?.length ?? 1) - 1} 个顶点。`);
+    }
+
+    if (projectResult.snapshot) {
+      setPendingRestore({ snapshot: projectResult.snapshot, label: file.name });
+    }
+
+    setImportNotice(notices);
+  };
+
+  const confirmRestore = () => {
+    if (!pendingRestore) {
+      return;
+    }
+
+    // 还原前先比对：坐标系不一致会让网格整体偏移，围栏越界则无法聚合
+    const raster = useRasterStore.getState();
+    const plan = buildRestorePlan({
+      snapshot: pendingRestore.snapshot,
+      currentFingerprint: raster.sourceFile ? fingerprintFromFile(raster.sourceFile) : null,
+      currentCrsCode: raster.metadata?.crsCode ?? null,
+      currentBoundingBox: raster.metadata?.boundingBox ?? null,
+    });
+
+    if (plan.action === 'blocked') {
+      setImportNotice(plan.errors);
+      setPendingRestore(null);
+      return;
+    }
+
+    applyProjectSnapshot(pendingRestore.snapshot);
+    setImportNotice(['已还原工程设置。', ...plan.warnings]);
+    setPendingRestore(null);
+  };
 
   const minCellSize = getMinCellSizeFromMetadata(metadata);
 
@@ -167,14 +277,12 @@ export function LeftPanel() {
                 accept=".tif,.tiff,image/tiff"
                 onChange={(event) => {
                   const file = event.target.files?.[0];
+                  event.target.value = '';
                   if (!file) {
                     return;
                   }
 
-                  resetFence();
-                  resetGrid();
-                  resetMapUi();
-                  selectFile(file);
+                  handleRasterFile(file);
                 }}
               />
             </>
@@ -195,7 +303,63 @@ export function LeftPanel() {
               </button>
             </div>
           )}
+
+          <label
+            className="toolbar-button toolbar-button--ghost"
+            htmlFor="fence-geojson-input"
+            style={{ display: 'inline-block', textAlign: 'center', width: '100%', marginTop: 8 }}
+          >
+            导入围栏 GeoJSON
+          </label>
+          <input
+            id="fence-geojson-input"
+            className="visually-hidden"
+            type="file"
+            accept=".geojson,.json,application/geo+json,application/json"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = '';
+              if (!file) {
+                return;
+              }
+
+              void handleGeoJsonFile(file);
+            }}
+          />
         </div>
+
+        {pendingRestore ? (
+          <div className="alert-toast" role="status" aria-label="project-restore">
+            <span className="alert-toast__icon">📄</span>
+            <span className="alert-toast__text">
+              「{pendingRestore.label}」内含工程设置，是否还原？
+            </span>
+            <div className="toolbar-row">
+              <button type="button" className="toolbar-button" onClick={confirmRestore}>
+                还原
+              </button>
+              <button
+                type="button"
+                className="toolbar-button toolbar-button--ghost"
+                onClick={() => setPendingRestore(null)}
+              >
+                忽略
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {importNotice.length > 0 ? (
+          <ul
+            className="toolbar-hint"
+            aria-label="import-notice"
+            style={{ margin: '8px 0 0', paddingLeft: 18 }}
+          >
+            {importNotice.map((notice, index) => (
+              <li key={`${notice}-${index}`}>{notice}</li>
+            ))}
+          </ul>
+        ) : null}
         <dl className="metric-list metric-list--two-col">
           <div className="metric-item">
             <dt className="metric-label">文件名</dt>
