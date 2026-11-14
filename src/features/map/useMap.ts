@@ -63,6 +63,9 @@ import {
   isBboxInside,
 } from './mapUtils';
 
+/** 网格图层的渲染要素上限：超过则按步长降采样渲染（导出与悬停仍覆盖全部网格） */
+const GRID_RENDER_CELL_BUDGET = 50_000;
+
 /**
  * 网格要素上的样式属性名：WebGL 层用表达式读取，普通矢量层读同一批属性。
  */
@@ -769,6 +772,8 @@ export function useMap(metadata: RasterMetadata | null) {
       summary: ReturnType<typeof buildGridPreview>['summary'] | null,
       origin?: ReturnType<typeof buildGridPreview> | null,
       geometryChanged = false,
+      /** 悬停查表用的单元集合；渲染降采样时传入全量，保证任意网格都能命中 */
+      lookupCells: GridCell[] = cells,
     ) => {
       setPreview(cells, summary, origin ? {
         metricOrigin: origin.metricOrigin,
@@ -776,7 +781,9 @@ export function useMap(metadata: RasterMetadata | null) {
         metricTransform: origin.metricTransform ?? null,
       } : null);
 
-      gridLookupRef.current = origin ? buildGridLookup(origin, origin.metricTransform ?? null) : null;
+      gridLookupRef.current = origin
+        ? buildGridLookup({ ...origin, cells: lookupCells }, origin.metricTransform ?? null)
+        : null;
 
       const existingFeatures = source.getFeatures();
       const existingById = new globalThis.Map<string, Feature>();
@@ -847,7 +854,7 @@ export function useMap(metadata: RasterMetadata | null) {
         buildGridPreview(fence.geometry.coordinates, cellSize, {
           metricTransform,
           rotationDeg: rotation,
-          maxPreviewCells: 50_000,
+          maxPreviewCells: GRID_RENDER_CELL_BUDGET,
         }),
       );
       renderGridPreview(basePreview.cells, basePreview.summary, basePreview, true);
@@ -948,7 +955,8 @@ export function useMap(metadata: RasterMetadata | null) {
             aggregation = await computeAggregationFallback();
           }
 
-          const nextPreview = buildGridPreview(
+          // 全量网格：用于悬停查表与命中数展示
+          const fullPreview = buildGridPreview(
             fence.geometry.coordinates,
             cellSize,
             {
@@ -958,16 +966,44 @@ export function useMap(metadata: RasterMetadata | null) {
             },
           );
 
+          // 渲染集合按上限降采样。悬停是行列算术 + 查表，不依赖要素是否存在，
+          // 因此降采样只影响地图上画多少格，不影响悬停与导出。
+          const sampled = fullPreview.cells.length > GRID_RENDER_CELL_BUDGET;
+          const renderPreview = sampled
+            ? buildGridPreview(fence.geometry.coordinates, cellSize, {
+                metricTransform,
+                aggregation,
+                rotationDeg: rotation,
+                maxPreviewCells: GRID_RENDER_CELL_BUDGET,
+              })
+            : fullPreview;
+          const renderSummary = sampled
+            ? {
+                ...fullPreview.summary,
+                // 命中数仍报告真实值，只在提示里说明地图做了采样
+                isPreviewLimited: true,
+                previewStride: renderPreview.summary.previewStride,
+                warning: `当前网格数量约 ${fullPreview.summary.totalCells.toLocaleString()} 个，地图仅预览采样网格（约 ${renderPreview.cells.length.toLocaleString()} 个），导出结果仍完整。`,
+              }
+            : fullPreview.summary;
+
           if (disposed) {
             return;
           }
 
           debugLog('map', '网格聚合预览已更新', {
             cellSize,
-            gridCellCount: nextPreview.cells.length,
+            gridCellCount: renderPreview.cells.length,
             aggregationCellCount: Object.keys(aggregation.cellsById).length,
+            sampled,
           });
-          renderGridPreview(nextPreview.cells, nextPreview.summary, nextPreview);
+          renderGridPreview(
+            renderPreview.cells,
+            renderSummary,
+            renderPreview,
+            false,
+            fullPreview.cells,
+          );
         } catch (error) {
           if (disposed) {
             return;
