@@ -4,6 +4,7 @@ export {
   fetchRasterBuffer,
   readBlobBuffer,
   openRasterSession,
+  buildRasterSourceKey,
   resetRasterSessionCache,
   getCrsCodeFromGeoKeys,
   buildRasterMetadata,

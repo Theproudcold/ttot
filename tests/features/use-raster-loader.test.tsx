@@ -15,6 +15,7 @@ vi.mock('@/shared/geo/raster', () => ({
   loadRasterMetadata: loadRasterMetadataMock,
   loadRasterPreview: loadRasterPreviewMock,
   loadRasterValidityMask: loadRasterValidityMaskMock,
+  buildRasterSourceKey: (file: Blob & { name?: string }) => `${file.name ?? ''}:${file.size}`,
 }));
 
 import { useRasterLoader } from '@/features/map/useRasterLoader';
@@ -126,6 +127,9 @@ describe('useRasterLoader', () => {
       expect(useRasterStore.getState().metadata).toEqual(metadata);
       expect(loadRasterPreviewMock).toHaveBeenCalledTimes(1);
     });
+
+    // 主线程回退路径必须与 Worker 用同一个预览边长，否则预览尺寸会不一致
+    expect(loadRasterPreviewMock.mock.calls[0]?.[2]).toEqual({ maxEdge: 1024 });
 
     act(() => {
       previewDeferred.resolve(preview);

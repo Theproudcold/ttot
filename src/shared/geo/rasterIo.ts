@@ -34,6 +34,8 @@ export type RasterSession = {
 
 let fileRasterSessionCache = new WeakMap<File, RasterSession>();
 const urlRasterSessionCache = new Map<string, RasterSession>();
+/** 按内容指纹（名称+大小+修改时间）缓存，用于跨 postMessage 复用 */
+const keyedRasterSessionCache = new Map<string, RasterSession>();
 
 /**
  * 等待下一次浏览器重绘，用于将耗时操作拆分为多个任务块，避免阻塞主线程。
@@ -340,7 +342,44 @@ function createRasterSession(source: RasterSource): RasterSession {
  * 打开或复用指定数据源的 RasterSession。
  * URL 使用 Map 缓存，File 使用 WeakMap 缓存。
  */
-export function openRasterSession(source: RasterSource): RasterSession {
+/**
+ * 生成数据源的稳定缓存键。
+ *
+ * 为什么需要它：Worker 侧收到的是 `postMessage` 结构化克隆后的 `File`，
+ * 每次请求都是**不同对象**，按对象身份做的 `WeakMap` 缓存必然失效——
+ * 同一份影像会被完整读取并解析多次（预览一次、有效掩膜再一次）。
+ * 用一个由 名称+大小+修改时间 组成的字符串作为键，才能跨请求复用同一个会话。
+ */
+export function buildRasterSourceKey(source: Blob): string {
+  const named = source as Blob & { name?: string; lastModified?: number };
+  const name = typeof named.name === 'string' ? named.name : '';
+  const lastModified = typeof named.lastModified === 'number' ? named.lastModified : 0;
+
+  return `${name}:${source.size}:${lastModified}`;
+}
+
+/**
+ * 打开或复用指定数据源的 RasterSession。
+ *
+ * 缓存键优先级：显式 `cacheKey`（跨线程场景）> URL 字符串 > File 对象身份。
+ */
+export function openRasterSession(
+  source: RasterSource,
+  options: { cacheKey?: string } = {},
+): RasterSession {
+  const { cacheKey } = options;
+
+  if (cacheKey) {
+    const keyedSession = keyedRasterSessionCache.get(cacheKey);
+    if (keyedSession) {
+      return keyedSession;
+    }
+
+    const nextSession = createRasterSession(source);
+    keyedRasterSessionCache.set(cacheKey, nextSession);
+    return nextSession;
+  }
+
   if (typeof source === 'string') {
     const existingSession = urlRasterSessionCache.get(source);
     if (existingSession) {
@@ -368,6 +407,7 @@ export function openRasterSession(source: RasterSource): RasterSession {
 export function resetRasterSessionCache() {
   fileRasterSessionCache = new WeakMap<File, RasterSession>();
   urlRasterSessionCache.clear();
+  keyedRasterSessionCache.clear();
 }
 
 /**
@@ -421,8 +461,9 @@ export async function loadRasterMetadata(
 export async function loadRasterPreview(
   source: File | string,
   onProgress?: (progress: number | null, phase: string) => void,
+  options: { maxEdge?: number; cacheKey?: string } = {},
 ): Promise<RasterPreview> {
-  const session = openRasterSession(source);
+  const session = openRasterSession(source, { cacheKey: options.cacheKey });
   onProgress?.(5, '正在生成预览');
   await session.getArrayBuffer(
     typeof source === 'string'
@@ -438,7 +479,7 @@ export async function loadRasterPreview(
   await waitForNextPaint();
   const image = await session.getImage();
   const noDataValue = normalizeNoDataValue(image.getGDALNoData?.() ?? image.fileDirectory?.GDAL_NODATA);
-  const previewSize = calculatePreviewDimensions(image.getWidth(), image.getHeight());
+  const previewSize = calculatePreviewDimensions(image.getWidth(), image.getHeight(), options.maxEdge);
   const samplesPerPixel = image.getSamplesPerPixel();
   // 导出文件会在末尾追加处方波段（并以 ExtraSamples 声明），分类判定要把它排除
   const classificationBandCount = resolveDataBandCount(

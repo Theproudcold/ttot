@@ -91,8 +91,8 @@ self.onmessage = async (event: MessageEvent<RasterWorkerRequest>) => {
     }
 
     if (request.type === 'load-preview') {
-      const { source, maxEdge } = request.payload;
-      const image = await openRasterSession(source).getImage();
+      const { source, sourceKey, maxEdge } = request.payload;
+      const image = await openRasterSession(source, { cacheKey: sourceKey }).getImage();
       const noDataValue = normalizeNoDataValue(image.getGDALNoData?.() ?? image.fileDirectory?.GDAL_NODATA);
       const previewSize = calculatePreviewDimensions(image.getWidth(), image.getHeight(), maxEdge);
       const samplesPerPixel = image.getSamplesPerPixel();
@@ -140,8 +140,8 @@ self.onmessage = async (event: MessageEvent<RasterWorkerRequest>) => {
     }
 
     if (request.type === 'load-validity-mask') {
-      const { source } = request.payload;
-      const image = await openRasterSession(source).getImage();
+      const { source, sourceKey } = request.payload;
+      const image = await openRasterSession(source, { cacheKey: sourceKey }).getImage();
       const validityMask = await buildRasterValidityMask(image);
 
       const response: RasterWorkerResponse = {

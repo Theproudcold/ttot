@@ -209,6 +209,8 @@ export type RasterWorkerRequest =
       type: 'load-preview';
       payload: {
         source: File | string;
+        /** 内容指纹：让 Worker 跨请求复用同一个解析会话 */
+        sourceKey?: string;
         maxEdge: number;
       };
     }
@@ -217,6 +219,8 @@ export type RasterWorkerRequest =
       type: 'load-validity-mask';
       payload: {
         source: File | string;
+        /** 内容指纹：与预览请求共用同一个会话，避免重复读取整幅影像 */
+        sourceKey?: string;
       };
     };
 

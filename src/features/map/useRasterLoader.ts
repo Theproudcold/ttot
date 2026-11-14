@@ -6,7 +6,12 @@ import {
   markPerformanceStart,
   summarizePreviewPayload,
 } from '@/features/map/debugLogger';
-import { loadRasterMetadata, loadRasterPreview, loadRasterValidityMask } from '@/shared/geo/raster';
+import {
+  buildRasterSourceKey,
+  loadRasterMetadata,
+  loadRasterPreview,
+  loadRasterValidityMask,
+} from '@/shared/geo/raster';
 import { createPreviewDataUrl } from '@/shared/geo/rasterPreview';
 import type { RasterPreview, RasterWorkerRequest, RasterWorkerResponse } from '@/shared/types/raster';
 
@@ -155,6 +160,10 @@ export function useRasterLoader(options?: RasterLoaderOptions) {
 
     const worker = workerRef.current;
 
+    // 同一个 File 发给 Worker 后会被结构化克隆成新对象，按对象身份缓存必然失效；
+    // 用内容指纹作键，让预览与有效掩膜两次请求复用同一个解析会话。
+    const sourceKey = buildRasterSourceKey(sourceFile);
+
     const loadPreviewViaWorker = async (): Promise<RasterPreview> => {
       if (!worker) {
         throw new Error('Worker not available');
@@ -165,6 +174,7 @@ export function useRasterLoader(options?: RasterLoaderOptions) {
         type: 'load-preview',
         payload: {
           source: sourceFile,
+          sourceKey,
           maxEdge: MAX_PREVIEW_EDGE,
         },
       };
@@ -200,18 +210,27 @@ export function useRasterLoader(options?: RasterLoaderOptions) {
             nextPreview = await loadPreviewViaWorker();
           } catch (workerError) {
             debugLog('loader', 'Worker 预览生成失败，回退主线程', workerError);
-            nextPreview = await loadRasterPreview(sourceFile, (progress, phase) => {
+            // 回退路径也必须用同一个 maxEdge，否则预览尺寸/采样与 Worker 路径不一致
+            nextPreview = await loadRasterPreview(
+              sourceFile,
+              (progress, phase) => {
+                if (!disposed) {
+                  setLoadingProgress(phase, progress);
+                }
+              },
+              { maxEdge: MAX_PREVIEW_EDGE },
+            );
+          }
+        } else {
+          nextPreview = await loadRasterPreview(
+            sourceFile,
+            (progress, phase) => {
               if (!disposed) {
                 setLoadingProgress(phase, progress);
               }
-            });
-          }
-        } else {
-          nextPreview = await loadRasterPreview(sourceFile, (progress, phase) => {
-            if (!disposed) {
-              setLoadingProgress(phase, progress);
-            }
-          });
+            },
+            { maxEdge: MAX_PREVIEW_EDGE },
+          );
         }
         if (!disposed) {
           setPreview(nextPreview);
@@ -273,6 +292,8 @@ export function useRasterLoader(options?: RasterLoaderOptions) {
         type: 'load-validity-mask',
         payload: {
           source: sourceFile,
+          // 与预览请求共用同一个会话，避免把整幅影像再读再解析一遍
+          sourceKey: buildRasterSourceKey(sourceFile),
         },
       };
       const response = await postWorkerRequest(worker, request);
