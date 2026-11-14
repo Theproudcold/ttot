@@ -26,7 +26,9 @@ vi.mock('@/shared/geo/raster', () => ({
 }));
 
 vi.mock('@/shared/geo/geotiffWriter', () => ({
+  // 导出路径走压缩写入；mock 复用同一个 spy，断言仍然针对同一份参数
   writeGeoTiffBuffer: writeGeoTiffBufferMock,
+  writeGeoTiffBufferAsync: writeGeoTiffBufferMock,
 }));
 
 import { exportFenceGeoTiff, downloadExportedGeoTiff } from '@/features/export/exportGeoTiff';

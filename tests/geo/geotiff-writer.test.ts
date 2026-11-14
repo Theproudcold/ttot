@@ -7,7 +7,7 @@ import {
   encodeEmbeddedSnapshot,
   exportProjectSnapshot,
 } from '@/features/project/projectSnapshot';
-import { writeGeoTiffBuffer } from '@/shared/geo/geotiffWriter';
+import { DEFLATE_COMPRESSION, writeGeoTiffBuffer, writeGeoTiffBufferAsync } from '@/shared/geo/geotiffWriter';
 import { countExtraSamples, resolveDataBandCount } from '@/shared/geo/rasterPreview';
 
 describe('writeGeoTiffBuffer', () => {
@@ -219,5 +219,93 @@ describe('writeGeoTiffBuffer', () => {
 
     expect(extraSamples).toBe(0);
     expect(resolveDataBandCount(image.getSamplesPerPixel(), extraSamples)).toBe(5);
+  });
+});
+
+describe('writeGeoTiffBufferAsync', () => {
+  /** 每个 8x8 块取常量：模拟处方图「按网格取同一值」的高度重复结构 */
+  function buildRepetitiveBand(width: number, height: number): Float32Array {
+    const band = new Float32Array(width * height);
+    for (let row = 0; row < height; row += 1) {
+      for (let col = 0; col < width; col += 1) {
+        const block = Math.floor(row / 8) * Math.ceil(width / 8) + Math.floor(col / 8);
+        band[row * width + col] = block + 0.5;
+      }
+    }
+    return band;
+  }
+
+  it('writes a deflate-compressed geotiff that reads back correctly and stays smaller', async () => {
+    const width = 64;
+    const height = 64;
+    const band = buildRepetitiveBand(width, height);
+    const options = {
+      width,
+      height,
+      bands: [band],
+      bitsPerSample: [32],
+      sampleFormat: [3],
+      samplesPerPixel: 1,
+      photometricInterpretation: 1,
+      modelPixelScale: [1, 1, 0],
+      modelTiepoint: [0, 0, 0, 0, height, 0],
+      gdalNoData: '-9999',
+    };
+
+    const compressed = await writeGeoTiffBufferAsync(options);
+    const uncompressed = writeGeoTiffBuffer(options);
+
+    expect(compressed.byteLength).toBeLessThan(uncompressed.byteLength);
+
+    const image = await (await fromArrayBuffer(compressed)).getImage();
+    const rasters = (await image.readRasters({ interleave: false })) as unknown as Float32Array[];
+
+    expect(image.fileDirectory.Compression).toBe(DEFLATE_COMPRESSION);
+    expect(image.getWidth()).toBe(width);
+    expect(image.getHeight()).toBe(height);
+    expect(image.getGDALNoData()).toBe(-9999);
+    expect(Array.from(rasters[0].slice(0, width * height))).toEqual(Array.from(band));
+  });
+
+  it('falls back to an uncompressed file when compression is unavailable', async () => {
+    const band = buildRepetitiveBand(16, 16);
+    const options = {
+      width: 16,
+      height: 16,
+      bands: [band],
+      bitsPerSample: [32],
+      sampleFormat: [3],
+      samplesPerPixel: 1,
+      photometricInterpretation: 1,
+      modelPixelScale: [1, 1, 0],
+      modelTiepoint: [0, 0, 0, 0, 16, 0],
+    };
+
+    const buffer = await writeGeoTiffBufferAsync(options, async () => null);
+    const image = await (await fromArrayBuffer(buffer)).getImage();
+    const rasters = (await image.readRasters({ interleave: false })) as unknown as Float32Array[];
+
+    expect(image.fileDirectory.Compression).toBe(1);
+    expect(Array.from(rasters[0].slice(0, 16 * 16))).toEqual(Array.from(band));
+  });
+
+  it('keeps the raw payload when compression would make the file larger', async () => {
+    const band = buildRepetitiveBand(8, 8);
+    const options = {
+      width: 8,
+      height: 8,
+      bands: [band],
+      bitsPerSample: [32],
+      sampleFormat: [3],
+      samplesPerPixel: 1,
+      photometricInterpretation: 1,
+      modelPixelScale: [1, 1, 0],
+      modelTiepoint: [0, 0, 0, 0, 8, 0],
+    };
+
+    const buffer = await writeGeoTiffBufferAsync(options, async (raw) => new Uint8Array(raw.byteLength + 16));
+    const image = await (await fromArrayBuffer(buffer)).getImage();
+
+    expect(image.fileDirectory.Compression).toBe(1);
   });
 });

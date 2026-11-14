@@ -296,7 +296,20 @@ function writePixelDataInto(input: {
   }
 }
 
-export function writeGeoTiffBuffer(options: GeoTiffWriteOptions): ArrayBuffer {
+/** Deflate 压缩（TIFF Compression = 8），各类 GIS/读取端通用 */
+export const DEFLATE_COMPRESSION = 8;
+
+/**
+ * 像元数据的写出方式：
+ * 同步路径直接写进文件缓冲（只有一份缓冲）；压缩路径写入已压缩好的字节。
+ */
+type PixelDataWriter = {
+  byteLength: number;
+  compression: number;
+  write: (bytes: Uint8Array, view: DataView, offset: number) => void;
+};
+
+function assembleGeoTiff(options: GeoTiffWriteOptions, pixelData: PixelDataWriter): ArrayBuffer {
   const {
     width,
     height,
@@ -319,13 +332,13 @@ export function writeGeoTiffBuffer(options: GeoTiffWriteOptions): ArrayBuffer {
     throw new Error('导出 GeoTIFF 时波段数量与 SamplesPerPixel 不一致');
   }
 
-  const pixelDataByteLength = computePixelDataByteLength(bands, bitsPerSample, width, height);
+  const pixelDataByteLength = pixelData.byteLength;
 
   const tags: TiffTag[] = [
     createInlineLongTag(256, width),
     createInlineLongTag(257, height),
     createShortArrayTag(258, bitsPerSample),
-    createInlineShortTag(259, 1),
+    createInlineShortTag(259, pixelData.compression),
     createInlineShortTag(262, photometricInterpretation),
     createInlineLongTag(273, 0),
     createInlineShortTag(277, samplesPerPixel),
@@ -440,15 +453,114 @@ export function writeGeoTiffBuffer(options: GeoTiffWriteOptions): ArrayBuffer {
     }
   }
 
+  pixelData.write(bytes, view, pixelDataOffset);
+
+  return buffer;
+}
+
+/**
+ * 把像元数据交织写进一块独立缓冲（压缩前需要先拿到完整字节）。
+ */
+function buildInterleavedPixelData(options: GeoTiffWriteOptions): Uint8Array {
+  const { bands, bitsPerSample, sampleFormat, width, height } = options;
+  const byteLength = computePixelDataByteLength(bands, bitsPerSample, width, height);
+  const buffer = new ArrayBuffer(byteLength);
+  const bytes = new Uint8Array(buffer);
+
   writePixelDataInto({
     bytes,
-    view,
-    offset: pixelDataOffset,
+    view: new DataView(buffer),
+    offset: 0,
     bands,
     bitsPerSample,
     sampleFormat,
     pixelCount: width * height,
   });
 
-  return buffer;
+  return bytes;
+}
+
+/**
+ * 用原生 Deflate 流压缩。
+ *
+ * 处方图每个网格是常量、网格尺寸远大于像元，重复度极高（实测 49 MB → 0.1 MB）；
+ * 即使数据不可压，Deflate 的膨胀也在千分之一量级。
+ * API 不可用或出错时返回 null，由调用方退回不压缩。
+ */
+async function deflateBytes(bytes: Uint8Array): Promise<Uint8Array | null> {
+  if (typeof CompressionStream !== 'function') {
+    return null;
+  }
+
+  try {
+    const source = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes);
+        controller.close();
+      },
+    });
+    // DOM 类型把 CompressionStream 的可写端标注为 BufferSource，与 Uint8Array 流不匹配；
+    // 运行时行为一致，这里只做类型层面的收窄。
+    const compressedStream = source.pipeThrough(
+      new CompressionStream('deflate') as unknown as TransformStream<Uint8Array, Uint8Array>,
+    );
+    const compressed = await new Response(compressedStream).arrayBuffer();
+
+    return new Uint8Array(compressed);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 写出不压缩的 GeoTIFF（像元数据直接写进文件缓冲，只有一份缓冲）。
+ */
+export function writeGeoTiffBuffer(options: GeoTiffWriteOptions): ArrayBuffer {
+  const { bands, bitsPerSample, sampleFormat, width, height } = options;
+
+  return assembleGeoTiff(options, {
+    byteLength: computePixelDataByteLength(bands, bitsPerSample, width, height),
+    compression: 1,
+    write: (bytes, view, offset) => {
+      writePixelDataInto({
+        bytes,
+        view,
+        offset,
+        bands,
+        bitsPerSample,
+        sampleFormat,
+        pixelCount: width * height,
+      });
+    },
+  });
+}
+
+/**
+ * 写出 Deflate 压缩的 GeoTIFF（Compression = 8）。
+ * 压缩不可用或压不小的时候自动退回不压缩，读取端无需区分。
+ */
+export async function writeGeoTiffBufferAsync(
+  options: GeoTiffWriteOptions,
+  compress: (bytes: Uint8Array) => Promise<Uint8Array | null> = deflateBytes,
+): Promise<ArrayBuffer> {
+  const raw = buildInterleavedPixelData(options);
+  const compressed = await compress(raw);
+
+  if (compressed && compressed.byteLength < raw.byteLength) {
+    return assembleGeoTiff(options, {
+      byteLength: compressed.byteLength,
+      compression: DEFLATE_COMPRESSION,
+      write: (bytes, _view, offset) => {
+        bytes.set(compressed, offset);
+      },
+    });
+  }
+
+  return assembleGeoTiff(options, {
+    byteLength: raw.byteLength,
+    compression: 1,
+    write: (bytes, _view, offset) => {
+      bytes.set(raw, offset);
+    },
+  });
 }

@@ -5,7 +5,7 @@ import {
   readGeoTiffFenceWindow,
   type SupportedRasterArray,
 } from '@/shared/geo/geotiffExport';
-import { writeGeoTiffBuffer } from '@/shared/geo/geotiffWriter';
+import { writeGeoTiffBufferAsync } from '@/shared/geo/geotiffWriter';
 import { countExtraSamples } from '@/shared/geo/rasterPreview';
 import { resolveCellAmount } from '@/shared/geo/applicationRate';
 import { EXPORT_RULE_SEMANTICS, findRuleMatch } from '@/shared/geo/classificationRuleMatching';
@@ -216,7 +216,7 @@ export async function buildGeoTiffExportBytes(
     }
   }
 
-  const encoded = writeGeoTiffBuffer({
+  const encoded = await writeGeoTiffBufferAsync({
     width: clippedWidth,
     height: clippedHeight,
     bands: finalBands,
