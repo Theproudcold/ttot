@@ -291,6 +291,37 @@ describe('validateProjectSnapshot repairs', () => {
     expect(result.snapshot.classification.layers).toEqual([]);
     expect(result.warnings.join()).toContain('分类方案');
   });
+
+  it('clamps out-of-range render settings instead of propagating them', () => {
+    const result = validateProjectSnapshot({
+      kind: 'ttot-project',
+      version: 1,
+      view: { gridRenderSettings: { fillOpacity: 1e9, strokeOpacity: -5, strokeWidth: 1e6 } },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.snapshot.view.gridRenderSettings.fillOpacity).toBe(1);
+    expect(result.snapshot.view.gridRenderSettings.strokeOpacity).toBe(0);
+    expect(result.snapshot.view.gridRenderSettings.strokeWidth).toBe(100);
+    expect(result.warnings.join()).toContain('透明度');
+  });
+
+  it('stays quiet about settings that are simply absent', () => {
+    const result = validateProjectSnapshot({ kind: 'ttot-project', version: 1 });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.snapshot.view.gridRenderSettings).toMatchObject({
+      fillOpacity: 0.3,
+      strokeOpacity: 0.8,
+      strokeWidth: 1,
+    });
+    expect(result.warnings.join()).not.toContain('透明度');
+    expect(result.warnings.join()).not.toContain('边框宽度');
+  });
 });
 
 describe('application rate fields in snapshots', () => {
@@ -542,7 +573,7 @@ describe('buildRestorePlan', () => {
       currentBoundingBox: [-10, -10, 20, 20],
     });
 
-    expect(plan.action).toBe('request-source');
+    expect(plan.action).toBe('blocked');
     expect(plan.crsMismatch).toBe(true);
     expect(plan.errors[0]).toContain('坐标系不一致');
   });
@@ -555,6 +586,8 @@ describe('buildRestorePlan', () => {
       currentBoundingBox: [100, 100, 110, 110],
     });
 
+    // 有 error 时动作本身必须是 blocked，不能依赖调用方记得检查 errors
+    expect(plan.action).toBe('blocked');
     expect(plan.fenceOutsideRaster).toBe(true);
     expect(plan.errors[0]).toContain('围栏超出影像范围');
   });

@@ -135,6 +135,14 @@ describe('writeDraft / readDraft', () => {
     expect(storage.getItem(DRAFT_STORAGE_KEY)).toBeNull();
   });
 
+  it('measures the size budget in bytes rather than UTF-16 code units', () => {
+    const snapshot = makeSnapshot();
+    // 每字 3 字节：码元数只有上限的一半，UTF-8 字节数却已超出
+    (snapshot as { padding?: string }).padding = '中'.repeat(DRAFT_MAX_BYTES / 3 + 1);
+
+    expect(writeDraft(snapshot, { storage, tabId: 'tab-1' })).toBe('skipped-oversize');
+  });
+
   it('degrades gracefully when storage throws', () => {
     const throwingStorage: Storage = {
       ...createMemoryStorage(),

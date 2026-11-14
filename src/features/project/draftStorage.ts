@@ -12,7 +12,7 @@ import type { ProjectSnapshotV1 } from './projectSnapshot';
 import { validateProjectSnapshot } from './projectSnapshot';
 
 export const DRAFT_STORAGE_KEY = 'ttot:draft:v1';
-/** 超过该长度直接放弃写入，避免触发配额异常 */
+/** 超过该字节数直接放弃写入，避免触发配额异常 */
 export const DRAFT_MAX_BYTES = 1_000_000;
 export const DRAFT_DEBOUNCE_MS = 1000;
 
@@ -119,7 +119,11 @@ export function writeDraft(
     return 'unavailable';
   }
 
-  if (payload.length > DRAFT_MAX_BYTES) {
+  // localStorage 的配额按字节计，而 String.length 是 UTF-16 码元数：
+  // 中文/emoji 内容会在「码元数没超」的情况下先撞上配额。
+  const payloadBytes = new TextEncoder().encode(payload).byteLength;
+
+  if (payloadBytes > DRAFT_MAX_BYTES) {
     return 'skipped-oversize';
   }
 

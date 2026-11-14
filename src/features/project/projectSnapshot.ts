@@ -38,6 +38,8 @@ const MAX_FENCE_POSITIONS = 200_000;
 const MAX_CLASSIFICATION_LAYERS = 200;
 const MAX_RULES = 500;
 const MAX_GRADIENT_STOPS = 500;
+/** 边框宽度上限：仅为拦住损坏文件里的极端值，不影响正常 1~5px 的取值 */
+const MAX_STROKE_WIDTH = 100;
 
 const HEX_COLOR_PATTERN = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 const DEFAULT_RULE_COLOR = '#cccccc';
@@ -630,7 +632,31 @@ function parseView(value: unknown, warnings: string[]): ProjectSnapshotView {
     return fallback;
   };
 
-  const numberOr = (input: unknown, fallback: number) => (isFiniteNumber(input) ? input : fallback);
+  /** 数值区间收敛：损坏文件里的 1e9 透明度不应直接进入渲染样式 */
+  const boundedOr = (
+    input: unknown,
+    fallback: number,
+    min: number,
+    max: number,
+    what: string,
+  ): number => {
+    // 字段缺省视为「未设置」，按默认值处理且不告警；只有显式给出非法值才提示
+    if (input === undefined || input === null) {
+      return fallback;
+    }
+
+    if (!isFiniteNumber(input)) {
+      warnings.push(`${what}非法，已回退为 ${fallback}。`);
+      return fallback;
+    }
+
+    const bounded = Math.min(Math.max(input, min), max);
+    if (bounded !== input) {
+      warnings.push(`${what}超出 ${min}~${max}，已收敛为 ${bounded}。`);
+    }
+
+    return bounded;
+  };
 
   return {
     layers: {
@@ -642,10 +668,10 @@ function parseView(value: unknown, warnings: string[]): ProjectSnapshotView {
       useClassificationColors:
         typeof render.useClassificationColors === 'boolean' ? render.useClassificationColors : true,
       fillColor: parseColor(render.fillColor, '#3388ff', warnings, '网格填充'),
-      fillOpacity: numberOr(render.fillOpacity, 0.3),
+      fillOpacity: boundedOr(render.fillOpacity, 0.3, 0, 1, '网格填充透明度'),
       strokeColor: parseColor(render.strokeColor, '#3388ff', warnings, '网格边框'),
-      strokeOpacity: numberOr(render.strokeOpacity, 0.8),
-      strokeWidth: numberOr(render.strokeWidth, 1),
+      strokeOpacity: boundedOr(render.strokeOpacity, 0.8, 0, 1, '网格边框透明度'),
+      strokeWidth: boundedOr(render.strokeWidth, 1, 0, MAX_STROKE_WIDTH, '网格边框宽度'),
     },
   };
 }
@@ -764,7 +790,13 @@ export function validateProjectSnapshot(raw: unknown): SnapshotParseResult {
 // 还原前置校验
 // ---------------------------------------------------------------------------
 
-export type RestorePlanAction = 'apply' | 'request-source';
+/**
+ * 还原动作：
+ * - `apply`：可以直接还原；
+ * - `request-source`：可以还原围栏/分类/网格参数，但需要用户重新选择源影像才能算聚合；
+ * - `blocked`：保存的状态与当前影像不可比（CRS 不一致、围栏越界），不得自动还原。
+ */
+export type RestorePlanAction = 'apply' | 'request-source' | 'blocked';
 
 export type RestorePlan = {
   action: RestorePlanAction;
@@ -866,7 +898,7 @@ export function buildRestorePlan(input: {
 
   if (crsMismatch) {
     errors.push(`影像坐标系不一致（记录 ${savedCrs}，当前 ${currentCrsCode}），网格位置会整体偏移，已停止自动还原。`);
-    action = 'request-source';
+    action = 'blocked';
   }
 
   let fenceOutsideRaster = false;
@@ -876,6 +908,8 @@ export function buildRestorePlan(input: {
     if (fenceBbox && !isBboxInside(fenceBbox, currentBoundingBox)) {
       fenceOutsideRaster = true;
       errors.push('围栏超出影像范围，请重新绘制或选择正确的影像。');
+      // 有 error 就不能只靠调用方"记得检查 errors"：动作本身必须表达"不要自动还原"
+      action = 'blocked';
     }
   }
 
