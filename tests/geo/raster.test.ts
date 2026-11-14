@@ -748,7 +748,19 @@ describe('findRasterClassificationMatch', () => {
         label: '0.0 - 0.7',
       },
     });
+    // 统一为闭区间后：恰好等于上界归入本级——与导出一致，也与标签"0.0 - 0.7"的字面一致
     expect(findRasterClassificationMatch(0.7, layer)).toMatchObject({
+      color: '#88cc44',
+      label: '0.0 - 0.7',
+      matchedRule: {
+        min: 0,
+        max: 0.7,
+        color: '#88cc44',
+        label: '0.0 - 0.7',
+      },
+    });
+    // 超过上界才进入下一级
+    expect(findRasterClassificationMatch(0.701, layer)).toMatchObject({
       color: '#226622',
       label: '0.7+',
       matchedRule: {

@@ -1,24 +1,27 @@
 /**
  * 分类规则的边界判定。
  *
- * 背景（既有不一致，已登记为待决策项）：
- * - 预览/图例使用**左闭右开** `[min, max)`；
- * - 导出使用**左闭右闭** `[min, max]`。
+ * 历史问题：预览/图例用**左闭右开** `[min, max)`，导出用**左闭右闭** `[min, max]`，
+ * 于是恰好等于某个规则上界的像元，屏幕上一个颜色、机器却施另一个量。
  *
- * 于是恰好落在某个断点上的像元，屏幕上一个颜色、机器却施另一个量。
- * 统一会改变导出的处方分配（影响机器读取），因此本次**不改行为**，
- * 只把两种语义显式命名并收敛到一处：日后统一时改调用点常量即可，
- * 并由测试同时钉住两侧当前行为，防止差异继续扩散。
+ * 现已统一到**左闭右闭**，理由是成本与风险不对等：
+ * - 导出是机器读的产物，统一到闭区间可以**一字不改**，处方分配零风险；
+ * - 预览只在"像元值恰好等于规则上界"时才有差异，浮点数据几乎不会命中；
+ * - 等面积分级的断点选择（丢弃等于数据最大值的末位断点）本来就是按闭区间推导的，
+ *   切到半开区间反而要连带返工。
+ *
+ * 两个常量保留各自名字：调用点仍然显式表达"这是哪一侧的判定"，
+ * 若将来某个面需要不同语义，改一处即可。
  */
 
 import type { RasterClassificationRule } from '@/shared/types/raster';
 
 export type RuleBoundarySemantics = 'half-open' | 'closed';
 
-/** 预览、图例、hover 使用的语义 */
-export const PREVIEW_RULE_SEMANTICS: RuleBoundarySemantics = 'half-open';
+/** 预览、图例、hover 使用的语义（已与导出一致） */
+export const PREVIEW_RULE_SEMANTICS: RuleBoundarySemantics = 'closed';
 
-/** 导出使用的语义（历史行为，改动即改变机器读到的处方） */
+/** 导出使用的语义（历史行为，保持闭区间以免改变机器读到的处方） */
 export const EXPORT_RULE_SEMANTICS: RuleBoundarySemantics = 'closed';
 
 type RuleBounds = Pick<RasterClassificationRule, 'min' | 'max'>;

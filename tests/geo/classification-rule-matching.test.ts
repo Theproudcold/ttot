@@ -11,19 +11,21 @@ const boundRule = { min: 0.2, max: 0.6 };
 const openEndedRule = { min: 0, max: null };
 
 describe('rule boundary semantics', () => {
-  it('treats the upper bound as exclusive for preview', () => {
-    expect(PREVIEW_RULE_SEMANTICS).toBe('half-open');
-    expect(matchesRule(boundRule, 0.2, 'half-open')).toBe(true);
-    expect(matchesRule(boundRule, 0.4, 'half-open')).toBe(true);
-    // 恰好等于上界 → 不属于本级
-    expect(matchesRule(boundRule, 0.6, 'half-open')).toBe(false);
+  it('uses the same closed interval on preview and export', () => {
+    // 统一到闭区间：导出是机器读的产物，不动它；预览对齐过来
+    expect(PREVIEW_RULE_SEMANTICS).toBe('closed');
+    expect(EXPORT_RULE_SEMANTICS).toBe('closed');
+
+    expect(matchesRule(boundRule, 0.2, PREVIEW_RULE_SEMANTICS)).toBe(true);
+    expect(matchesRule(boundRule, 0.6, PREVIEW_RULE_SEMANTICS)).toBe(true);
+    expect(matchesRule(boundRule, 0.6, EXPORT_RULE_SEMANTICS)).toBe(true);
+    expect(matchesRule(boundRule, 0.61, 'closed')).toBe(false);
   });
 
-  it('treats the upper bound as inclusive for export', () => {
-    expect(EXPORT_RULE_SEMANTICS).toBe('closed');
-    expect(matchesRule(boundRule, 0.2, 'closed')).toBe(true);
-    expect(matchesRule(boundRule, 0.6, 'closed')).toBe(true);
-    expect(matchesRule(boundRule, 0.61, 'closed')).toBe(false);
+  it('still supports half-open intervals for future surfaces', () => {
+    // 语法保留：若某个面需要半开区间，改调用点常量即可，不必重写判定
+    expect(matchesRule(boundRule, 0.6, 'half-open')).toBe(false);
+    expect(matchesRule(boundRule, 0.5, 'half-open')).toBe(true);
   });
 
   it('never matches below the lower bound, in either semantic', () => {
@@ -52,9 +54,9 @@ describe('findRuleMatch', () => {
     { min: 1, max: 2, color: '#222222', label: '中' },
   ];
 
-  it('documents the divergence at an exact boundary', () => {
-    // 同一个断点值：预览归到上一级，导出归到下一级
-    expect(findRuleMatch(rules, 1, PREVIEW_RULE_SEMANTICS)?.index).toBe(1);
+  it('resolves an exact boundary to the lower rule on both surfaces', () => {
+    // 断点值归属一致：两个面都落在下一级（首个命中优先）
+    expect(findRuleMatch(rules, 1, PREVIEW_RULE_SEMANTICS)?.index).toBe(0);
     expect(findRuleMatch(rules, 1, EXPORT_RULE_SEMANTICS)?.index).toBe(0);
   });
 

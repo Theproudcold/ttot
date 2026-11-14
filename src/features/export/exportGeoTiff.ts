@@ -8,6 +8,7 @@ import {
 import { writeGeoTiffBuffer } from '@/shared/geo/geotiffWriter';
 import { countExtraSamples } from '@/shared/geo/rasterPreview';
 import { resolveCellAmount } from '@/shared/geo/applicationRate';
+import { EXPORT_RULE_SEMANTICS, findRuleMatch } from '@/shared/geo/classificationRuleMatching';
 import { encodeEmbeddedSnapshot, type ProjectSnapshotV1 } from '@/features/project/projectSnapshot';
 import type { MetricTransform } from '@/shared/geo/crs';
 import type { FenceFeature } from '@/shared/types/fence';
@@ -145,14 +146,12 @@ export async function exportFenceGeoTiff(input: {
     for (let i = 0; i < finalBands[0].length; i++) {
         const val = finalBands[0][i];
         if (val !== exportNoDataValue) {
-            for (let ruleIndex = 0; ruleIndex < rules.length; ruleIndex += 1) {
-                const rule = rules[ruleIndex];
-                if (val >= rule.min && (rule.max === null || val <= rule.max)) {
-                    const amount = ruleCellAmounts[ruleIndex];
-                    if (amount !== null) {
-                        prescriptionBand[i] = amount;
-                    }
-                    break;
+            // 与 GeoJSON 导出、地图口径共用同一个判定实现，避免三处各写一套比较
+            const match = findRuleMatch(rules, val, EXPORT_RULE_SEMANTICS);
+            if (match) {
+                const amount = ruleCellAmounts[match.index];
+                if (amount !== null) {
+                    prescriptionBand[i] = amount;
                 }
             }
         }
