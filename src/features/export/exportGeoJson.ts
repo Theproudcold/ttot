@@ -38,6 +38,7 @@ import {
   normalizeApplicationRateUnit,
   resolveCellAmount,
 } from '@/shared/geo/applicationRate';
+import { EXPORT_RULE_SEMANTICS, findRuleMatch } from '@/shared/geo/classificationRuleMatching';
 
 export function createGridGeoJson(
   cells: GridCell[],
@@ -64,21 +65,19 @@ export function createGridGeoJson(
         properties.aggregationValue = cell.aggregation.outputValue;
         properties.meanValue = cell.aggregation.meanValue;
         if (rules.length > 0) {
-           for (const rule of rules) {
-             if (cell.aggregation.outputValue >= rule.min && (rule.max == null || cell.aggregation.outputValue <= rule.max)) {
-                // fertilizerAmount 始终是"该网格单元的用量"，下游口径不变；
-                // 只有按面积计量的规则才额外记录原始速率与单位以便追溯。
-                const cellAmount = resolveCellAmount(rule, cellAreaM2);
-                if (cellAmount !== null) {
-                  properties.fertilizerAmount = cellAmount;
+           const match = findRuleMatch(rules, cell.aggregation.outputValue, EXPORT_RULE_SEMANTICS);
+           if (match) {
+             // fertilizerAmount 始终是"该网格单元的用量"，下游口径不变；
+             // 只有按面积计量的规则才额外记录原始速率与单位以便追溯。
+             const cellAmount = resolveCellAmount(match.rule, cellAreaM2);
+             if (cellAmount !== null) {
+               properties.fertilizerAmount = cellAmount;
 
-                  if (normalizeApplicationRateBasis(rule.applicationRateBasis) === 'per-area') {
-                    properties.applicationRate = rule.applicationRate ?? null;
-                    properties.applicationRateUnit = normalizeApplicationRateUnit(rule.applicationRateUnit);
-                    properties.cellAreaM2 = cellAreaM2;
-                  }
-                }
-                break;
+               if (normalizeApplicationRateBasis(match.rule.applicationRateBasis) === 'per-area') {
+                 properties.applicationRate = match.rule.applicationRate ?? null;
+                 properties.applicationRateUnit = normalizeApplicationRateUnit(match.rule.applicationRateUnit);
+                 properties.cellAreaM2 = cellAreaM2;
+               }
              }
            }
         }
