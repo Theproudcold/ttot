@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
+import { createIdentityMetricTransform } from '@/shared/geo/crs';
 import { useFenceStore } from '@/features/fence/fenceStore';
 import { useGridStore } from '@/features/grid/gridStore';
 import { useMapUiStore } from '@/features/map/mapUiStore';
@@ -69,14 +70,7 @@ function makeMetadata(): RasterMetadata {
     metricExtent: { minX: 0, minY: 0, maxX: 10, maxY: 5 },
     metricWidth: 10,
     metricHeight: 5,
-    metricTransform: {
-      coordinateDisplayMode: 'projected',
-      metricExtent: { minX: 0, minY: 0, maxX: 10, maxY: 5 },
-      metricWidth: 10,
-      metricHeight: 5,
-      toMetric: ([x, y]) => [x, y],
-      fromMetric: ([x, y]) => [x, y],
-    },
+    metricTransform: createIdentityMetricTransform([0, 0, 10, 5]),
     origin: [0, 5, 0],
     resolution: [0.1, -0.1, 0],
     cellSize: { x: 0.1, y: 0.1, unit: 'm' },

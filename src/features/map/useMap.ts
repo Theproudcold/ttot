@@ -32,6 +32,7 @@ import { clipFenceToBoundingBox, clipFenceToValidityMask, getFenceSummary, isCoo
 import { buildGridAggregationFromFenceWindowAsync } from '@/shared/geo/geotiffExport';
 import { readFenceWindowWithCache } from '@/shared/geo/fenceWindow';
 import { buildGridPreview } from '@/shared/geo/grid';
+import { buildAggregateGridPayload } from '@/shared/workers/rasterWorkerRequests';
 import {
   buildRasterClassificationPreviewRgba,
   buildRasterSourceKey,
@@ -832,17 +833,17 @@ export function useMap(metadata: RasterMetadata | null) {
                 const request: RasterWorkerRequest = {
                   id: jobId,
                   type: 'aggregate-grid',
-                  payload: {
+                  payload: buildAggregateGridPayload({
                     source: sourceFile,
                     sourceKey,
                     fenceRings,
-                    samples: [0],
-                    metricTransform: metricTransform ?? null,
+                    metricTransform,
                     gridCellWidth: cellSize,
                     gridCellHeight: cellSize,
                     aggregationMode,
                     rotationDeg: rotation,
-                  },
+                    samples: [0],
+                  }),
                 };
                 worker.postMessage(request);
               });

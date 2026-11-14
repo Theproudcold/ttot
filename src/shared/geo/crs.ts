@@ -2,8 +2,17 @@ import proj4 from 'proj4';
 import { get as getProjection } from 'ol/proj.js';
 import { register } from 'ol/proj/proj4.js';
 
-export { createMetricTransform, isLikelyProjectedCrs } from './metricTransform';
-export type { CoordinateDisplayMode, MetricTransform } from './metricTransform';
+export {
+  createIdentityMetricTransform,
+  createMetricTransform,
+  createMetricTransformFromDescriptor,
+  isLikelyProjectedCrs,
+} from './metricTransform';
+export type {
+  CoordinateDisplayMode,
+  MetricTransform,
+  MetricTransformDescriptor,
+} from './metricTransform';
 
 export type MetricExtent = {
   minX: number;

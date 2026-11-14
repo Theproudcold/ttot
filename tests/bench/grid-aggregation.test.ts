@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { createMetricTransform } from '@/shared/geo/crs';
+import { createIdentityMetricTransform, createMetricTransform } from '@/shared/geo/crs';
 import type { MetricTransform } from '@/shared/geo/crs';
 import { getFenceSummary, isPointInFence } from '@/shared/geo/fence';
 import {
@@ -21,14 +21,7 @@ import type { FencePosition, FenceRings } from '@/shared/types/fence';
 import type { GridAggregationMode, GridAggregationResult, GridCellAggregation } from '@/shared/types/grid';
 import type { RasterOrigin, RasterResolution } from '@/shared/types/raster';
 
-const identityTransform: MetricTransform = {
-  coordinateDisplayMode: 'projected',
-  metricExtent: { minX: 0, minY: 0, maxX: 0, maxY: 0 },
-  metricWidth: 0,
-  metricHeight: 0,
-  toMetric: ([x, y]) => [x, y],
-  fromMetric: ([x, y]) => [x, y],
-};
+const identityTransform: MetricTransform = createIdentityMetricTransform([0, 0, 0, 0]);
 
 type AggregationCase = {
   name: string;

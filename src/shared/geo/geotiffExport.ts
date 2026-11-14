@@ -1,4 +1,5 @@
 import type { MetricTransform } from '@/shared/geo/crs';
+import { createIdentityMetricTransform } from '@/shared/geo/crs';
 import { getFenceSummary, isPointInFence } from '@/shared/geo/fence';
 import {
   aggregateGridCellsFromRasterWindow,
@@ -82,27 +83,11 @@ function getPixelCenter(
   return [originX + (col + 0.5) * resolutionX, originY + (row + 0.5) * resolutionY];
 }
 
-function createIdentityMetricTransform(fenceRings: FenceRings): MetricTransform {
-  const { bbox } = getFenceSummary(fenceRings);
-  const [minX, minY, maxX, maxY] = bbox;
-
-  return {
-    coordinateDisplayMode: 'projected',
-    metricExtent: {
-      minX,
-      minY,
-      maxX,
-      maxY,
-    },
-    metricWidth: Math.max(0, maxX - minX),
-    metricHeight: Math.max(0, maxY - minY),
-    toMetric: ([x, y]) => [x, y],
-    fromMetric: ([x, y]) => [x, y],
-  };
-}
-
+/**
+ * 解析度量变换对象，若未提供则基于围栏创建恒等变换。
+ */
 function resolveMetricTransform(fenceRings: FenceRings, metricTransform?: MetricTransform): MetricTransform {
-  return metricTransform ?? createIdentityMetricTransform(fenceRings);
+  return metricTransform ?? createIdentityMetricTransform(getFenceSummary(fenceRings).bbox);
 }
 
 function getMetricBounds(fenceRings: FenceRings, metricTransform: MetricTransform): [number, number, number, number] {

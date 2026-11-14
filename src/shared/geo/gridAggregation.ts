@@ -1,4 +1,5 @@
 import type { MetricTransform } from '@/shared/geo/crs';
+import { createIdentityMetricTransform } from '@/shared/geo/crs';
 import { getFenceSummary, isPointInFence } from '@/shared/geo/fence';
 import type { FencePosition, FenceRings } from '@/shared/types/fence';
 import type { GridAggregationMode, GridAggregationResult, GridCellAggregation } from '@/shared/types/grid';
@@ -96,32 +97,10 @@ function getPixelCenter(
 }
 
 /**
- * 创建恒等度量变换（地理坐标与度量坐标 1:1 映射）。
- */
-function createIdentityMetricTransform(fenceRings: FenceRings): MetricTransform {
-  const { bbox } = getFenceSummary(fenceRings);
-  const [minX, minY, maxX, maxY] = bbox;
-
-  return {
-    coordinateDisplayMode: 'projected',
-    metricExtent: {
-      minX,
-      minY,
-      maxX,
-      maxY,
-    },
-    metricWidth: Math.max(0, maxX - minX),
-    metricHeight: Math.max(0, maxY - minY),
-    toMetric: ([x, y]) => [x, y],
-    fromMetric: ([x, y]) => [x, y],
-  };
-}
-
-/**
  * 解析度量变换对象，若未提供则基于围栏创建恒等变换。
  */
 function resolveMetricTransform(fenceRings: FenceRings, metricTransform?: MetricTransform): MetricTransform {
-  return metricTransform ?? createIdentityMetricTransform(fenceRings);
+  return metricTransform ?? createIdentityMetricTransform(getFenceSummary(fenceRings).bbox);
 }
 
 /**

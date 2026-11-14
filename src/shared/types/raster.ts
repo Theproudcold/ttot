@@ -1,4 +1,9 @@
-import type { CoordinateDisplayMode, MetricExtent, MetricTransform } from '@/shared/geo/crs';
+import type {
+  CoordinateDisplayMode,
+  MetricExtent,
+  MetricTransform,
+  MetricTransformDescriptor,
+} from '@/shared/geo/crs';
 
 export type RasterBoundingBox = [number, number, number, number];
 export type RasterOrigin = [number, number, number?];
@@ -209,7 +214,11 @@ export type RasterWorkerRequest =
         fenceRings: import('@/shared/types/fence').FenceRings;
         /** 参与聚合的波段序号，缺省为 [0] */
         samples?: number[];
-        metricTransform: MetricTransform | null;
+        /**
+         * 度量变换的可克隆描述：`MetricTransform` 含函数，直接 postMessage 会抛 DataCloneError。
+         * 为 null 时按未提供处理（Worker 侧回退到围栏恒等变换）。
+         */
+        metricTransformDescriptor: MetricTransformDescriptor | null;
         gridCellWidth: number;
         gridCellHeight: number;
         aggregationMode: import('@/shared/types/grid').GridAggregationMode;

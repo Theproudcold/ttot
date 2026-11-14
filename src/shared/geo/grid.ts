@@ -1,4 +1,5 @@
 import type { MetricTransform } from '@/shared/geo/crs';
+import { createIdentityMetricTransform } from '@/shared/geo/crs';
 import { getFenceSummary, isPointInFence } from '@/shared/geo/fence';
 import type { FencePosition, FenceRings } from '@/shared/types/fence';
 import type { GridAggregationResult, GridCell, GridPreview } from '@/shared/types/grid';
@@ -67,7 +68,7 @@ export function buildGridPreview(
 
   const options = resolveOptions(thirdArg, fourthArg);
   const aggregation = options.aggregation;
-  const metricTransform = options.metricTransform ?? createIdentityMetricTransform(rings);
+  const metricTransform = options.metricTransform ?? createIdentityMetricTransform(getFenceSummary(rings).bbox);
   const rotationDeg = options.rotationDeg ?? 0;
   const rotationRad = (rotationDeg * Math.PI) / 180;
 
@@ -311,30 +312,7 @@ function resolveMetricTransform(
     return fourthArg;
   }
 
-  return createIdentityMetricTransform(rings);
-}
-
-/**
- * 创建恒等度量变换（地理坐标与度量坐标 1:1 映射）。
- * 默认以围栏边界框作为度量范围。
- */
-function createIdentityMetricTransform(rings: FenceRings): MetricTransform {
-  const { bbox } = getFenceSummary(rings);
-  const [minX, minY, maxX, maxY] = bbox;
-
-  return {
-    coordinateDisplayMode: 'projected',
-    metricExtent: {
-      minX,
-      minY,
-      maxX,
-      maxY,
-    },
-    metricWidth: Math.max(0, maxX - minX),
-    metricHeight: Math.max(0, maxY - minY),
-    toMetric: ([x, y]) => [x, y],
-    fromMetric: ([x, y]) => [x, y],
-  };
+  return createIdentityMetricTransform(getFenceSummary(rings).bbox);
 }
 
 /**

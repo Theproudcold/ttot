@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { estimateGridCount, getMinCellSizeFromMetadata, isLikelyProjectedCrs } from '@/shared/geo/crs';
+import { createIdentityMetricTransform, estimateGridCount, getMinCellSizeFromMetadata, isLikelyProjectedCrs } from '@/shared/geo/crs';
 import type { RasterMetadata } from '@/shared/types/raster';
 
 describe('isLikelyProjectedCrs', () => {
@@ -60,14 +60,7 @@ describe('getMinCellSizeFromMetadata', () => {
       metricExtent: { minX: boundingBox[0], minY: boundingBox[1], maxX: boundingBox[2], maxY: boundingBox[3] },
       metricWidth: boundingBox[2] - boundingBox[0],
       metricHeight: boundingBox[3] - boundingBox[1],
-      metricTransform: {
-        coordinateDisplayMode: 'projected',
-        metricExtent: { minX: boundingBox[0], minY: boundingBox[1], maxX: boundingBox[2], maxY: boundingBox[3] },
-        metricWidth: boundingBox[2] - boundingBox[0],
-        metricHeight: boundingBox[3] - boundingBox[1],
-        toMetric: ([x, y]) => [x, y],
-        fromMetric: ([x, y]) => [x, y],
-      },
+      metricTransform: createIdentityMetricTransform(boundingBox),
       origin: [boundingBox[0], boundingBox[3], 0],
       resolution: [1, -1, 0],
       cellSize,
