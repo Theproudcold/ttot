@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import { createFenceGeoJson, createGridGeoJson } from '@/features/export/exportGeoJson';
+import { readProjectSnapshotFromGeoJson } from '@/features/project/geojsonProject';
+import { exportProjectSnapshot } from '@/features/project/projectSnapshot';
+import { GEOJSON_PROJECT_MEMBER, parseFenceGeoJson } from '@/shared/geo/geojsonImport';
 import type { FenceFeature } from '@/shared/types/fence';
 import type { GridCell, GridSummary } from '@/shared/types/grid';
 import type { RasterRuleClassificationLayer } from '@/shared/types/raster';
@@ -175,5 +178,67 @@ describe('createGridGeoJson with classification rules', () => {
 
     expect(result.features[0].properties.aggregationValue).toBe(0.5);
     expect(result.features[0].properties.fertilizerAmount).toBeUndefined();
+  });
+});
+
+describe('embedded project snapshot', () => {
+  const snapshot = exportProjectSnapshot({
+    sourceFile: null,
+    sourceLabel: '未选择文件',
+    metadata: null,
+    fenceRings: fence.geometry.coordinates,
+    grid: { cellSize: 5, rotation: 12, aggregationMode: 'mean' },
+    classification: { layers: [], activeLayerId: null, visibleLayerId: null },
+    view: {
+      layers: { raster: true, fence: true, grid: true },
+      gridRenderSettings: {
+        useClassificationColors: true,
+        fillColor: '#3388ff',
+        fillOpacity: 0.3,
+        strokeColor: '#3388ff',
+        strokeOpacity: 0.8,
+        strokeWidth: 1,
+      },
+    },
+  });
+
+  it('attaches the snapshot to both exports as a foreign member', () => {
+    const fenceJson = createFenceGeoJson(fence, snapshot);
+    const gridJson = createGridGeoJson(withAggregation(gridCells, 0.5), gridSummary, null, snapshot);
+
+    expect(fenceJson[GEOJSON_PROJECT_MEMBER]).toEqual(snapshot);
+    expect(gridJson[GEOJSON_PROJECT_MEMBER]).toEqual(snapshot);
+  });
+
+  it('leaves the member out when no snapshot is provided', () => {
+    expect(createFenceGeoJson(fence)[GEOJSON_PROJECT_MEMBER]).toBeUndefined();
+    expect(
+      createGridGeoJson(withAggregation(gridCells, 0.5), gridSummary)[GEOJSON_PROJECT_MEMBER],
+    ).toBeUndefined();
+  });
+
+  it('round-trips a grid export back into project settings', () => {
+    // 导出的 grid.geojson 是多边形集合：不能当围栏，但应能还原设置
+    const gridJson = createGridGeoJson(withAggregation(gridCells, 0.5), gridSummary, null, snapshot);
+
+    const fenceResult = parseFenceGeoJson(gridJson);
+    expect(fenceResult.ok).toBe(true);
+    if (!fenceResult.ok) return;
+    expect(fenceResult.rings).toBeNull();
+    expect(fenceResult.warnings.join()).toContain('网格要素');
+
+    const project = readProjectSnapshotFromGeoJson(gridJson);
+    expect(project.snapshot).toEqual(snapshot);
+    expect(project.snapshot?.grid.rotation).toBe(12);
+  });
+
+  it('round-trips a fence export as both geometry and settings', () => {
+    const fenceJson = createFenceGeoJson(fence, snapshot);
+
+    const fenceResult = parseFenceGeoJson(fenceJson);
+    expect(fenceResult.ok).toBe(true);
+    if (!fenceResult.ok) return;
+    expect(fenceResult.rings).toEqual(fence.geometry.coordinates);
+    expect(readProjectSnapshotFromGeoJson(fenceJson).snapshot).toEqual(snapshot);
   });
 });
