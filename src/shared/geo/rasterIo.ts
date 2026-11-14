@@ -38,6 +38,33 @@ const urlRasterSessionCache = new Map<string, RasterSession>();
 const keyedRasterSessionCache = new Map<string, RasterSession>();
 
 /**
+ * 会话缓存条目上限。
+ *
+ * 为什么必须有上限：一个会话会一直持有整份文件字节（geotiff.js 需要随机访问，
+ * 无法在解析后释放），所以「按指纹缓存」如果不设上限，用户每打开一个新影像
+ * 就会在每个线程里永久多留一份等于文件大小的缓冲——开十个 100 MB 的影像就是 1 GB。
+ * 保留最近两个既能覆盖「同一影像反复读取」，也能在切换影像后释放旧影像。
+ */
+const MAX_SESSION_CACHE_ENTRIES = 2;
+
+/**
+ * 写入并维护 LRU：命中或写入都会把条目挪到队尾，超出上限时淘汰最久未用的。
+ */
+function touchSessionCache(cache: Map<string, RasterSession>, key: string, session: RasterSession): void {
+  cache.delete(key);
+  cache.set(key, session);
+
+  while (cache.size > MAX_SESSION_CACHE_ENTRIES) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey === undefined) {
+      return;
+    }
+
+    cache.delete(oldestKey);
+  }
+}
+
+/**
  * 等待下一次浏览器重绘，用于将耗时操作拆分为多个任务块，避免阻塞主线程。
  */
 export function waitForNextPaint(): Promise<void> {
@@ -376,22 +403,24 @@ export function openRasterSession(
   if (cacheKey) {
     const keyedSession = keyedRasterSessionCache.get(cacheKey);
     if (keyedSession) {
+      touchSessionCache(keyedRasterSessionCache, cacheKey, keyedSession);
       return keyedSession;
     }
 
     const nextSession = createRasterSession(source);
-    keyedRasterSessionCache.set(cacheKey, nextSession);
+    touchSessionCache(keyedRasterSessionCache, cacheKey, nextSession);
     return nextSession;
   }
 
   if (typeof source === 'string') {
     const existingSession = urlRasterSessionCache.get(source);
     if (existingSession) {
+      touchSessionCache(urlRasterSessionCache, source, existingSession);
       return existingSession;
     }
 
     const nextSession = createRasterSession(source);
-    urlRasterSessionCache.set(source, nextSession);
+    touchSessionCache(urlRasterSessionCache, source, nextSession);
     return nextSession;
   }
 

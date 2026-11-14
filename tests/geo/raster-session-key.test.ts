@@ -79,3 +79,32 @@ describe('keyed session cache', () => {
     expect(openRasterSession(file, { cacheKey: key })).not.toBe(session);
   });
 });
+
+describe('会话缓存上限', () => {
+  it('keyed 缓存只保留最近两个影像，旧影像的整文件缓冲随之释放', () => {
+    const files = ['a.tif', 'b.tif', 'c.tif'].map((name) => makeFile(name));
+    const keys = files.map((file) => buildRasterSourceKey(file));
+    const sessions = files.map((file, index) => openRasterSession(file, { cacheKey: keys[index] }));
+
+    // 第三个影像进来后第一个被淘汰：再次打开会得到新会话（即重新读取）
+    const reopenedA = openRasterSession(files[0], { cacheKey: keys[0] });
+    expect(reopenedA).not.toBe(sessions[0]);
+
+    // 最近使用的仍然命中；被挤掉的 b 需要重新读取
+    expect(openRasterSession(files[2], { cacheKey: keys[2] })).toBe(sessions[2]);
+    expect(openRasterSession(files[0], { cacheKey: keys[0] })).toBe(reopenedA);
+    expect(openRasterSession(files[1], { cacheKey: keys[1] })).not.toBe(sessions[1]);
+  });
+
+  it('URL 会话缓存同样有上限', () => {
+    const urls = [
+      'https://example.com/a.tif',
+      'https://example.com/b.tif',
+      'https://example.com/c.tif',
+    ];
+    const sessions = urls.map((url) => openRasterSession(url));
+
+    expect(openRasterSession(urls[0])).not.toBe(sessions[0]);
+    expect(openRasterSession(urls[2])).toBe(sessions[2]);
+  });
+});
