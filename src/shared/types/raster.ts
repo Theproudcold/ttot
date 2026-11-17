@@ -34,19 +34,6 @@ export type RasterValueRange = {
   max: number;
 };
 
-export type RasterRenderSettings = {
-  min: number | null;
-  max: number | null;
-  step: number;
-};
-
-export type RasterClassificationBreak = {
-  min: number;
-  max: number;
-  color: string;
-  label: string;
-};
-
 export type RasterClassificationMode = 'gradient' | 'rules';
 
 export type RasterGradientStop = {

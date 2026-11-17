@@ -12,8 +12,6 @@ vi.mock('geotiff', () => ({
 }));
 
 import {
-  buildClassificationBreaks,
-  buildClassifiedPreviewRgba,
   buildDefaultNdviClassificationLayer,
   buildRasterClassificationLegendData,
   buildRasterClassificationPreviewRgba,
@@ -22,7 +20,6 @@ import {
   calculatePreviewDimensions,
   calculateProgressPercent,
   findRasterClassificationMatch,
-  findClassificationBreakForValue,
   getCrsCodeFromGeoKeys,
   getSampleRanges,
   loadRasterMetadata,
@@ -604,68 +601,6 @@ describe('getSampleRanges', () => {
         max: 0.5,
       },
     ]);
-  });
-});
-
-describe('buildClassificationBreaks', () => {
-  it('aligns automatic single-band ranges to the configured step', () => {
-    const breaks = buildClassificationBreaks(
-      {
-        min: -0.3512,
-        max: 0.9192,
-      },
-      {
-        min: null,
-        max: null,
-        step: 0.2,
-      },
-    );
-
-    expect(breaks).toHaveLength(7);
-    expect(breaks[0]).toMatchObject({
-      min: -0.4,
-      max: -0.2,
-      label: '-0.40 ~ -0.20',
-    });
-    expect(breaks.at(-1)).toMatchObject({
-      min: 0.8,
-      max: 1,
-      label: '0.80 ~ 1.00',
-    });
-  });
-});
-
-describe('findClassificationBreakForValue', () => {
-  it('returns the matching break and clamps values outside the configured range', () => {
-    const breaks = buildClassificationBreaks(
-      { min: 0, max: 0.4 },
-      { min: 0, max: 0.4, step: 0.2 },
-      ['#eeeeee', '#111111'],
-    );
-
-    expect(findClassificationBreakForValue(0.15, breaks)?.label).toBe('0.00 ~ 0.20');
-    expect(findClassificationBreakForValue(0.35, breaks)?.label).toBe('0.20 ~ 0.40');
-    expect(findClassificationBreakForValue(-1, breaks)?.label).toBe('0.00 ~ 0.20');
-    expect(findClassificationBreakForValue(10, breaks)?.label).toBe('0.20 ~ 0.40');
-  });
-});
-
-describe('buildClassifiedPreviewRgba', () => {
-  it('maps classified grayscale colors and keeps nodata pixels transparent', () => {
-    const breaks = buildClassificationBreaks(
-      { min: 0, max: 0.4 },
-      { min: 0, max: 0.4, step: 0.2 },
-      ['#eeeeee', '#111111'],
-    );
-
-    expect(buildClassifiedPreviewRgba([0, 0.1, 0.25, 0.35], 2, 2, breaks, 0)).toEqual(
-      new Uint8ClampedArray([
-        0, 0, 0, 0,
-        238, 238, 238, 255,
-        17, 17, 17, 255,
-        17, 17, 17, 255,
-      ]),
-    );
   });
 });
 

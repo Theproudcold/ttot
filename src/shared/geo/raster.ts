@@ -38,9 +38,6 @@ export {
   buildRasterClassificationLegendData,
   buildDefaultNdviClassificationLayer,
   findRasterClassificationMatch,
-  buildClassificationBreaks,
-  findClassificationBreakForValue,
-  buildClassifiedPreviewRgba,
   buildRasterClassificationPreviewRgba,
 } from './rasterClassification';
 export type {

@@ -12,6 +12,11 @@ import { readEmbeddedProjectSnapshot } from '@/features/project/readEmbeddedSnap
 import type { ProjectSnapshotV1 } from '@/features/project/projectSnapshot';
 import { buildRestorePlan, fingerprintFromFile } from '@/features/project/projectSnapshot';
 import { getDegreeToMeterScale, getMinCellSizeFromMetadata } from '@/shared/geo/crs';
+import {
+  formatGridRatio,
+  formatRasterPhysicalSize,
+  formatSourceExtent,
+} from './right-panel/classificationUtils';
 import { parseFenceGeoJson } from '@/shared/geo/geojsonImport';
 import { readBlobBuffer } from '@/shared/geo/rasterIo';
 import type { RasterMetadata } from '@/shared/types/raster';
@@ -34,37 +39,6 @@ function formatCellSize(metadata: RasterMetadata | null | undefined): string {
   }
 
   return `${x.toFixed(4)} ${unit}`;
-}
-
-function getCoordinateDecimals(metadata: RasterMetadata | null | undefined): number {
-  return metadata?.coordinateDisplayMode === 'geographic' ? 6 : 2;
-}
-
-function formatSourceExtent(metadata: RasterMetadata | null | undefined): string {
-  if (!metadata) {
-    return '--';
-  }
-
-  const decimals = getCoordinateDecimals(metadata);
-  return metadata.boundingBox.map((value) => value.toFixed(decimals)).join(', ');
-}
-
-function formatRasterPhysicalSize(metadata: RasterMetadata | null | undefined): string {
-  if (!metadata) {
-    return '--';
-  }
-
-  return `${metadata.metricWidth.toFixed(2)}m x ${metadata.metricHeight.toFixed(2)}m`;
-}
-
-function formatGridRatio(cellSize: number, metadata: RasterMetadata | null | undefined): string {
-  if (!metadata || cellSize <= 0 || metadata.metricWidth <= 0 || metadata.metricHeight <= 0) {
-    return '--';
-  }
-
-  const widthRatio = (cellSize / metadata.metricWidth) * 100;
-  const heightRatio = (cellSize / metadata.metricHeight) * 100;
-  return `${widthRatio.toFixed(1)}% / ${heightRatio.toFixed(1)}%`;
 }
 
 export function LeftPanel() {

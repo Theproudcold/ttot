@@ -2,7 +2,7 @@ import { create } from 'zustand';
 
 import { buildDefaultNdviClassificationLayer } from '@/shared/geo/raster';
 import type { GridRenderSettings } from '@/shared/types/grid';
-import type { RasterHoverInfo, RasterHoverInfoInput, RasterRenderSettings } from '@/shared/types/raster';
+import type { RasterHoverInfo, RasterHoverInfoInput } from '@/shared/types/raster';
 import type { RasterClassificationLayer } from '@/shared/types/raster';
 
 type LayerKey = 'raster' | 'fence' | 'grid';
@@ -33,7 +33,6 @@ type ClassificationLayerUpdates = Partial<ClassificationLayerBaseState> & {
 type MapUiState = {
   layers: LayerVisibilityState;
   hoverInfo: RasterHoverInfo | null;
-  rasterRenderSettings: RasterRenderSettings;
   gridRenderSettings: GridRenderSettings;
   classificationLayers: ClassificationLayerState[];
   activeClassificationLayerId: string | null;
@@ -41,7 +40,6 @@ type MapUiState = {
   toggleLayer: (layer: LayerKey) => void;
   setLayerVisibility: (layer: LayerKey, visible: boolean) => void;
   setHoverInfo: (hoverInfo: RasterHoverInfoInput | null) => void;
-  setRasterRenderSettings: (settings: Partial<RasterRenderSettings>) => void;
   setGridRenderSettings: (settings: Partial<GridRenderSettings>) => void;
   addClassificationLayer: (layer: ClassificationLayerState) => void;
   updateClassificationLayer: (layerId: string, updates: ClassificationLayerUpdates) => void;
@@ -68,12 +66,6 @@ const INITIAL_LAYERS: LayerVisibilityState = {
   raster: true,
   fence: true,
   grid: true,
-};
-
-const INITIAL_RASTER_RENDER_SETTINGS: RasterRenderSettings = {
-  min: null,
-  max: null,
-  step: 0.2,
 };
 
 const INITIAL_GRID_RENDER_SETTINGS: GridRenderSettings = {
@@ -356,7 +348,6 @@ export const useMapUiStore = create<MapUiState>((set) => ({
   ...buildInitialClassificationState(),
   layers: INITIAL_LAYERS,
   hoverInfo: null,
-  rasterRenderSettings: INITIAL_RASTER_RENDER_SETTINGS,
   gridRenderSettings: INITIAL_GRID_RENDER_SETTINGS,
   toggleLayer: (layer) =>
     set((state) => ({
@@ -373,13 +364,6 @@ export const useMapUiStore = create<MapUiState>((set) => ({
       },
     })),
   setHoverInfo: (hoverInfo) => set({ hoverInfo: hoverInfo ? normalizeHoverInfo(hoverInfo) : null }),
-  setRasterRenderSettings: (settings) =>
-    set((state) => ({
-      rasterRenderSettings: {
-        ...state.rasterRenderSettings,
-        ...settings,
-      },
-    })),
   setGridRenderSettings: (settings) =>
     set((state) => ({
       gridRenderSettings: {
@@ -537,7 +521,6 @@ export const useMapUiStore = create<MapUiState>((set) => ({
       ...buildInitialClassificationState(),
       layers: INITIAL_LAYERS,
       hoverInfo: null,
-      rasterRenderSettings: INITIAL_RASTER_RENDER_SETTINGS,
       gridRenderSettings: INITIAL_GRID_RENDER_SETTINGS,
     }),
   restoreUiState: (input) =>

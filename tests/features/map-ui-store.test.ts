@@ -109,32 +109,6 @@ describe('useMapUiStore', () => {
     });
   });
 
-  it('tracks raster classification settings and resets them to defaults', () => {
-    act(() => {
-      useMapUiStore.getState().setRasterRenderSettings({
-        min: -0.4,
-        max: 1,
-        step: 0.5,
-      });
-    });
-
-    expect(useMapUiStore.getState().rasterRenderSettings).toEqual({
-      min: -0.4,
-      max: 1,
-      step: 0.5,
-    });
-
-    act(() => {
-      useMapUiStore.getState().reset();
-    });
-
-    expect(useMapUiStore.getState().rasterRenderSettings).toEqual({
-      min: null,
-      max: null,
-      step: 0.2,
-    });
-  });
-
   it('injects the default NDVI classification layer and restores it on reset', () => {
     expect(useMapUiStore.getState().classificationLayers).toEqual([
       expect.objectContaining({
