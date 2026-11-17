@@ -15,6 +15,6 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: './tests/setup.ts',
-    exclude: [...configDefaults.exclude, '.worktrees/**', '.pnpm-store/**'],
+    exclude: [...configDefaults.exclude, '.worktrees/**', '.agents/**', '.pnpm-store/**'],
   },
 });
