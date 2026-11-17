@@ -1,6 +1,6 @@
 import { hexToRgb, hexToRgba, interpolateHexColors } from './rasterColor';
 import { isValidRasterSample } from './rasterPreview';
-import { PREVIEW_RULE_SEMANTICS, findRuleMatch } from './classificationRuleMatching';
+import { findRuleMatch } from './classificationRuleMatching';
 import type {
   RasterClassificationLayer,
   RasterClassificationBreak,
@@ -107,14 +107,13 @@ function getClassificationColor(index: number, total: number, colors: string[]):
 /**
  * 在规则列表中查找第一个匹配给定值的分类规则。
  *
- * 语义为**左闭右开** `[min, max)`，与预览/图例一致；
- * 导出侧使用左闭右闭，差异集中记录在 `classificationRuleMatching.ts`。
+ * 语义为**左闭右闭** `[min, max]`，全仓统一，见 `classificationRuleMatching.ts`。
  */
 export function findMatchingClassificationRule(
   value: number,
   rules: RasterClassificationRule[],
 ): RasterClassificationRule | null {
-  return findRuleMatch(rules, value, PREVIEW_RULE_SEMANTICS)?.rule ?? null;
+  return findRuleMatch(rules, value)?.rule ?? null;
 }
 
 /**

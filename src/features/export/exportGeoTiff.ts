@@ -8,7 +8,7 @@ import {
 import { writeGeoTiffBufferAsync } from '@/shared/geo/geotiffWriter';
 import { countExtraSamples } from '@/shared/geo/rasterPreview';
 import { resolveCellAmount } from '@/shared/geo/applicationRate';
-import { EXPORT_RULE_SEMANTICS, findRuleMatch } from '@/shared/geo/classificationRuleMatching';
+import { findRuleMatch } from '@/shared/geo/classificationRuleMatching';
 import { encodeEmbeddedSnapshot, type ProjectSnapshotV1 } from '@/features/project/projectSnapshot';
 import { debugLog } from '@/features/map/debugLogger';
 import { buildExportGeoTiffPayload } from '@/shared/workers/rasterWorkerRequests';
@@ -179,7 +179,7 @@ export async function buildGeoTiffExportBytes(
         const val = finalBands[0][i];
         if (val !== exportNoDataValue) {
             // 与 GeoJSON 导出、地图口径共用同一个判定实现，避免三处各写一套比较
-            const match = findRuleMatch(rules, val, EXPORT_RULE_SEMANTICS);
+            const match = findRuleMatch(rules, val);
             if (match) {
                 const amount = ruleCellAmounts[match.index];
                 if (amount !== null) {

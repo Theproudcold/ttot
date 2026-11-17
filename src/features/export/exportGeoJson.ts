@@ -62,7 +62,7 @@ import {
   normalizeApplicationRateUnit,
   resolveCellAmount,
 } from '@/shared/geo/applicationRate';
-import { EXPORT_RULE_SEMANTICS, findRuleMatch } from '@/shared/geo/classificationRuleMatching';
+import { findRuleMatch } from '@/shared/geo/classificationRuleMatching';
 
 export function createGridGeoJson(
   cells: GridCell[],
@@ -91,7 +91,7 @@ export function createGridGeoJson(
         properties.aggregationValue = cell.aggregation.outputValue;
         properties.meanValue = cell.aggregation.meanValue;
         if (rules.length > 0) {
-           const match = findRuleMatch(rules, cell.aggregation.outputValue, EXPORT_RULE_SEMANTICS);
+           const match = findRuleMatch(rules, cell.aggregation.outputValue);
            if (match) {
              // fertilizerAmount 始终是"该网格单元的用量"，下游口径不变；
              // 只有按面积计量的规则才额外记录原始速率与单位以便追溯。

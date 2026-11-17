@@ -5,7 +5,7 @@ import { useGridStore } from '@/features/grid/gridStore';
 import { useMapUiStore } from '@/features/map/mapUiStore';
 import { useRasterStore } from '@/features/map/rasterStore';
 import { summarizeApplicationRates } from '@/shared/geo/applicationRate';
-import { PREVIEW_RULE_SEMANTICS, findRuleMatch } from '@/shared/geo/classificationRuleMatching';
+import { findRuleMatch } from '@/shared/geo/classificationRuleMatching';
 import type { RasterRuleClassificationLayer } from '@/shared/types/raster';
 
 import {
@@ -115,12 +115,12 @@ export function RightPanel() {
     const rules = activeClassificationLayer.rules;
     const matchedCounts = new Array(rules.length).fill(0);
 
-    // 与地图着色使用同一判定口径（左闭右开），保证面板上的命中格数与看到的颜色一致
+    // 与地图着色使用同一判定口径（左闭右闭），保证面板上的命中格数与看到的颜色一致
     for (const cell of gridCells) {
       const value = cell.aggregation?.outputValue;
       if (value == null) continue;
 
-      const match = findRuleMatch(rules, value, PREVIEW_RULE_SEMANTICS);
+      const match = findRuleMatch(rules, value);
       if (match) {
         matchedCounts[match.index] += 1;
       }

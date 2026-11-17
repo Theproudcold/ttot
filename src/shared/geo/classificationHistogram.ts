@@ -4,14 +4,13 @@
  * 对标竞品基线：Metashape 的处方表就是"直方图 + 分级断点 + Zonal mean/Area/Rate"，
  * NDVItoTaskmap 则提供"按等面积自动分级"。原先本工具只有手工规则，没有这一层。
  *
- * 注意口径：本模块统计命中数时采用与**导出**一致的判定（左闭右闭、首个命中优先），
- * 因此返回的 counts 与导出结果可逐格对上。预览侧的规则判定目前是左闭右开，
- * 只有恰好落在断点上的像元会有差异——该不一致已在设计文档中登记。
+ * 注意口径：全仓统一的规则判定为左闭右闭、首个命中优先，因此本模块返回的
+ * counts 与导出结果、以及预览着色都可逐格对上。
  */
 
 import type { RasterClassificationRule } from '@/shared/types/raster';
 
-import { EXPORT_RULE_SEMANTICS, findRuleMatch } from './classificationRuleMatching';
+import { findRuleMatch } from './classificationRuleMatching';
 
 export type HistogramBin = {
   from: number;
@@ -245,7 +244,7 @@ export function buildEqualAreaClassification(input: {
   const counts = new Array<number>(classTotal).fill(0);
 
   for (const value of sorted) {
-    const match = findRuleMatch(rules, value, EXPORT_RULE_SEMANTICS);
+    const match = findRuleMatch(rules, value);
     if (match) {
       counts[match.index] += 1;
     }
