@@ -301,7 +301,7 @@ describe('RightPanel', () => {
       act(() => {
         useMapUiStore.getState().addClassificationLayer(rulesLayer);
         useMapUiStore.getState().setActiveClassificationLayer('rules-a');
-        useGridStore.getState().setPreview([cell], gridSummary, null);
+        useGridStore.getState().setPreview([cell], gridSummary);
       });
 
       render(<RightPanel />);

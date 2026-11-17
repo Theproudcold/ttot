@@ -1,7 +1,6 @@
 import { useMapUiStore } from '@/features/map/mapUiStore';
 import { findRasterClassificationMatch } from '@/shared/geo/raster';
 import { getFenceSummary } from '@/shared/geo/fence';
-import { isPointInFence } from '@/shared/geo/fence';
 import type { FenceRings } from '@/shared/types/fence';
 import type { GridCell, GridRenderSettings } from '@/shared/types/grid';
 import type { RasterClassificationLayer, RasterMetadata } from '@/shared/types/raster';
@@ -26,12 +25,6 @@ export type FrameValueScheduler<T> = {
   schedule: (value: T) => void;
   cancel: () => void;
 };
-
-/**
- * 网格单元命中测试器类型。
- * 输入地理坐标，返回命中的网格单元或 null。
- */
-export type GridCellHitTester = (coordinate: [number, number]) => GridCell | null;
 
 /**
  * 判断 innerBbox 是否完全包含在 outerBbox 内。
@@ -111,20 +104,6 @@ export function getPreviewSampleValues(
 }
 
 /**
- * 遍历所有网格单元，使用多边形包含测试查找坐标所在的网格单元。
- * 作为 createGridCellHitTester 的纯多边形回退方案。
- */
-export function scanGridCellAtCoordinate(coordinate: [number, number], cells: GridCell[]): GridCell | null {
-  for (const cell of cells) {
-    if (isPointInFence(coordinate, cell.polygon)) {
-      return cell;
-    }
-  }
-
-  return null;
-}
-
-/**
  * 将十六进制颜色字符串和透明度转换为 rgba() CSS 字符串。
  */
 export function hexToRgba(hex: string, alpha: number): string {
@@ -155,67 +134,6 @@ export function createIdentityMetricTransform(fenceRings: FenceRings) {
     metricHeight: Math.max(0, maxY - minY),
     toMetric: ([x, y]: [number, number]) => [x, y] as [number, number],
     fromMetric: ([x, y]: [number, number]) => [x, y] as [number, number],
-  };
-}
-
-/**
- * 计算围栏在度量坐标系下的边界框 [minX, minY, maxX, maxY]。
- * 如果提供了 metricTransform，会先对所有顶点执行 toMetric 转换。
- */
-export function getFenceMetricBounds(
-  fenceRings: FenceRings,
-  metricTransform?: RasterMetadata['metricTransform'] | null,
-): [number, number, number, number] {
-  const transform = metricTransform ?? createIdentityMetricTransform(fenceRings);
-  let minX = Number.POSITIVE_INFINITY;
-  let minY = Number.POSITIVE_INFINITY;
-  let maxX = Number.NEGATIVE_INFINITY;
-  let maxY = Number.NEGATIVE_INFINITY;
-
-  for (const ring of fenceRings) {
-    for (const point of ring) {
-      const [x, y] = transform.toMetric(point);
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x);
-      maxY = Math.max(maxY, y);
-    }
-  }
-
-  return [minX, minY, maxX, maxY];
-}
-
-/**
- * 创建网格单元命中测试器。
- * 策略：先用基于网格行列号的索引快速定位候选单元（索引加速），
- * 若未命中再回退到完整的多边形遍历（polygon fallback），保证精度。
- */
-export function createGridCellHitTester(input: {
-  cells: GridCell[];
-  fenceRings: FenceRings;
-  cellSize: number;
-  metricTransform?: RasterMetadata['metricTransform'] | null;
-}): GridCellHitTester {
-  const { cells, fenceRings, cellSize, metricTransform } = input;
-  const indexedCells = new globalThis.Map(cells.map((cell) => [cell.id, cell]));
-  const [minX, minY, maxX, maxY] = getFenceMetricBounds(fenceRings, metricTransform);
-  const transform = metricTransform ?? createIdentityMetricTransform(fenceRings);
-  const safeCellSize = cellSize || Number.EPSILON;
-
-  return (coordinate) => {
-    const [metricX, metricY] = transform.toMetric(coordinate);
-
-    if (metricX >= minX && metricX <= maxX && metricY >= minY && metricY <= maxY) {
-      const row = Math.floor((metricY - minY) / safeCellSize);
-      const col = Math.floor((metricX - minX) / safeCellSize);
-      const indexedCell = indexedCells.get(`r${row}-c${col}`);
-
-      if (indexedCell && isPointInFence(coordinate, indexedCell.polygon)) {
-        return indexedCell;
-      }
-    }
-
-    return scanGridCellAtCoordinate(coordinate, cells);
   };
 }
 

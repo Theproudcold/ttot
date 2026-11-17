@@ -774,11 +774,7 @@ export function useMap(metadata: RasterMetadata | null) {
       /** 悬停查表用的单元集合；渲染降采样时传入全量，保证任意网格都能命中 */
       lookupCells: GridCell[] = cells,
     ) => {
-      setPreview(cells, summary, origin ? {
-        metricOrigin: origin.metricOrigin,
-        metricCellSize: origin.metricCellSize,
-        metricTransform: origin.metricTransform ?? null,
-      } : null);
+      setPreview(cells, summary);
 
       gridLookupRef.current = origin
         ? buildGridLookup({ ...origin, cells: lookupCells }, origin.metricTransform ?? null)

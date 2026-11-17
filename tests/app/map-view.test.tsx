@@ -10,10 +10,8 @@ import {
   getGridCellStyleColors,
   scheduleMapResizeFrame,
 } from '@/features/map/useMap';
-import { createGridCellHitTester } from '@/features/map/mapUtils';
-import { createMetricTransform } from '@/shared/geo/crs';
 import type { GridCell, GridRenderSettings } from '@/shared/types/grid';
-import type { RasterClassificationLayer, RasterMetadata } from '@/shared/types/raster';
+import type { RasterClassificationLayer } from '@/shared/types/raster';
 
 const defaultGridRenderSettings: GridRenderSettings = {
   useClassificationColors: true,
@@ -85,52 +83,6 @@ function createPendingGridCell(): GridCell {
         [0, 0],
       ],
     ],
-  };
-}
-
-function createIndexedGridCell(
-  id: string,
-  row: number,
-  col: number,
-  polygon: GridCell['polygon'],
-): GridCell {
-  return {
-    id,
-    row,
-    col,
-    center: polygon[0][0] ?? [0, 0],
-    polygon,
-  };
-}
-
-function createRasterMetadata(
-  overrides: Partial<RasterMetadata> & Pick<RasterMetadata, 'boundingBox' | 'crsCode'>,
-): RasterMetadata {
-  const { boundingBox, crsCode, ...rest } = overrides;
-  const metricTransform = createMetricTransform({
-    crsCode,
-    boundingBox,
-  });
-
-  return {
-    sourceUrl: null,
-    fileName: 'test.tif',
-    width: 100,
-    height: 100,
-    samplesPerPixel: 1,
-    ...rest,
-    boundingBox,
-    coordinateDisplayMode: metricTransform.coordinateDisplayMode,
-    metricExtent: metricTransform.metricExtent,
-    metricWidth: metricTransform.metricWidth,
-    metricHeight: metricTransform.metricHeight,
-    metricTransform,
-    origin: rest.origin ?? [boundingBox[0], boundingBox[3], 0],
-    resolution: rest.resolution ?? [1, -1, 0],
-    cellSize: rest.cellSize ?? { x: 1, y: 1, unit: 'm' },
-    crsCode,
-    crsName: rest.crsName ?? crsCode,
-    isProjected: rest.isProjected ?? metricTransform.coordinateDisplayMode === 'projected',
   };
 }
 
@@ -241,61 +193,6 @@ describe('MapView', () => {
 
     expect(received).toEqual([3]);
     expect(cancel).not.toHaveBeenCalled();
-  });
-
-  it('finds grid hits from the indexed row and column before falling back to polygon scan', () => {
-    const hitTester = createGridCellHitTester({
-      cells: [
-        createIndexedGridCell('r0-c0', 0, 0, [
-          [
-            [0, 0],
-            [1, 0],
-            [1, 1],
-            [0, 1],
-            [0, 0],
-          ],
-        ]),
-      ],
-      fenceRings: [
-        [
-          [0, 0],
-          [1, 0],
-          [1, 1],
-          [0, 1],
-          [0, 0],
-        ],
-      ],
-      cellSize: 1,
-    });
-
-    expect(hitTester([0.5, 0.5])?.id).toBe('r0-c0');
-  });
-
-  it('falls back to polygon scan when indexed lookup misses', () => {
-    const fallbackCell = createIndexedGridCell('r9-c9', 9, 9, [
-      [
-        [0, 0],
-        [1, 0],
-        [1, 1],
-        [0, 1],
-        [0, 0],
-      ],
-    ]);
-    const hitTester = createGridCellHitTester({
-      cells: [fallbackCell],
-      fenceRings: [
-        [
-          [0, 0],
-          [1, 0],
-          [1, 1],
-          [0, 1],
-          [0, 0],
-        ],
-      ],
-      cellSize: 1,
-    });
-
-    expect(hitTester([0.5, 0.5])?.id).toBe('r9-c9');
   });
 
   it('renders the default NDVI gradient legend with the visible scheme name', () => {
