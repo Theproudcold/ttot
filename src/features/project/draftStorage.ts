@@ -77,7 +77,10 @@ function isDraftRecord(value: unknown): value is DraftRecord {
 
 /**
  * 读取草稿容器。
- * 兼容早期"单条记录直接放在 key 上"的存储形态，避免升级后旧草稿读不出来。
+ *
+ * 只有「容器 + 每标签页一条」这一种形态：它是 2513fb3 与单槽实现同日引入的
+ * 最终形态，中间那版单条记录格式从未随任何发布版本存留过，因此不再保留
+ * 兼容读取分支——留着会让「存在两代存储格式」的错觉固化在代码里。
  */
 function readDraftStore(storage: Storage): DraftStoreShape | null {
   let text: string | null = null;
@@ -101,23 +104,19 @@ function readDraftStore(storage: Storage): DraftStoreShape | null {
 
     const container = parsed as { drafts?: unknown };
 
-    if (container.drafts && typeof container.drafts === 'object') {
-      const drafts: Record<string, DraftRecord> = {};
+    if (!container.drafts || typeof container.drafts !== 'object') {
+      return null;
+    }
 
-      for (const [key, value] of Object.entries(container.drafts as Record<string, unknown>)) {
-        if (isDraftRecord(value)) {
-          drafts[key] = value;
-        }
+    const drafts: Record<string, DraftRecord> = {};
+
+    for (const [key, value] of Object.entries(container.drafts as Record<string, unknown>)) {
+      if (isDraftRecord(value)) {
+        drafts[key] = value;
       }
-
-      return { version: 1, drafts };
     }
 
-    if (isDraftRecord(parsed)) {
-      return { version: 1, drafts: { [(parsed as DraftRecord).tabId]: parsed as DraftRecord } };
-    }
-
-    return null;
+    return { version: 1, drafts };
   } catch {
     return null;
   }

@@ -144,7 +144,8 @@ describe('writeDraft / readDraft', () => {
     expect(readDraft({ storage, tabId: `tab-${MAX_DRAFT_ENTRIES + 1}` })).not.toBeNull();
   });
 
-  it('reads a legacy single-record draft written by an older version', () => {
+  it('treats a non-container payload as corrupt rather than reviving it', () => {
+    // 旧单条记录格式不再兼容读取：应被当作损坏草稿清理，而不是被当成有效草稿
     storage.setItem(
       DRAFT_STORAGE_KEY,
       JSON.stringify({
@@ -154,8 +155,7 @@ describe('writeDraft / readDraft', () => {
       }),
     );
 
-    expect(readDraft({ storage })?.tabId).toBe('legacy-tab');
-    expect(readDraft({ storage, tabId: 'legacy-tab' })?.tabId).toBe('legacy-tab');
+    expect(readDraft({ storage })).toBeNull();
   });
 
   it('clears only the requested tab when a tabId is given', () => {
