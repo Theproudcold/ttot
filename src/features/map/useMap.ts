@@ -41,12 +41,8 @@ import {
   buildRasterClassificationPreviewRgba,
   findRasterClassificationMatch,
 } from '@/shared/geo/rasterClassification';
-import {
-  buildRasterSourceKey,
-} from '@/shared/geo/rasterIo';
-import {
-  createPreviewDataUrl,
-} from '@/shared/geo/rasterPreview';
+import { buildRasterSourceKey } from '@/shared/geo/rasterIo';
+import { createPreviewDataUrl } from '@/shared/geo/rasterPreview';
 import type { RasterMetadata, RasterWorkerRequest, RasterWorkerResponse } from '@/shared/types/raster';
 import type { FenceRings } from '@/shared/types/fence';
 import type { GridCell, GridRenderSettings } from '@/shared/types/grid';

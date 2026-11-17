@@ -1,7 +1,5 @@
 import { useMapUiStore } from '@/features/map/mapUiStore';
-import {
-  findRasterClassificationMatch,
-} from '@/shared/geo/rasterClassification';
+import { findRasterClassificationMatch } from '@/shared/geo/rasterClassification';
 import { getFenceSummary } from '@/shared/geo/fence';
 import { isPointInFence } from '@/shared/geo/fence';
 import type { FenceRings } from '@/shared/types/fence';

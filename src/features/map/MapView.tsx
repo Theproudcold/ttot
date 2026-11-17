@@ -1,9 +1,7 @@
 import { useRasterStore } from '@/features/map/rasterStore';
 import { useFenceStore } from '@/features/fence/fenceStore';
 import { useMapUiStore } from '@/features/map/mapUiStore';
-import {
-  buildRasterClassificationLegendData,
-} from '@/shared/geo/rasterClassification';
+import { buildRasterClassificationLegendData } from '@/shared/geo/rasterClassification';
 
 import { useMap } from './useMap';
 import { useRasterLoader } from './useRasterLoader';

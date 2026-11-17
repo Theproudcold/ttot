@@ -3,7 +3,7 @@
  *
  * 从 `projectSnapshot.ts` 拆出：契约（类型 + 序列化）与防御性校验的关注点不同，
  * 演进节奏也不同 —— 契约随功能变化，校验随「陌生/损坏文件」的边界情况增长。
- * 本模块只依赖契约类型，无副作用。
+ * 本模块只依赖契约的类型与常量（KIND/VERSION/内嵌前缀），无副作用。
  *
  * 校验策略：能修的就地修复并返回 warning，结构性错误返回 error，
  * 保证陌生/损坏文件不会让应用崩溃。
@@ -43,6 +43,7 @@ const MAX_STROKE_WIDTH = 100;
 const HEX_COLOR_PATTERN = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 const DEFAULT_RULE_COLOR = '#cccccc';
 const DEFAULT_NO_DATA_COLOR = '#00000000';
+
 function fromBase64(encoded: string): string {
   const binary = atob(encoded);
   const bytes = new Uint8Array(binary.length);
@@ -470,6 +471,11 @@ export function validateProjectSnapshot(raw: unknown): SnapshotParseResult {
   return { ok: true, snapshot, warnings };
 }
 
+/**
+ * 从内嵌字符串解析配方。
+ * 返回 null 表示「不是本工具的配方」（例如其他软件写入的 ImageDescription），
+ * 此时调用方应继续走普通影像流程。
+ */
 export function decodeEmbeddedSnapshot(text: string | null | undefined): SnapshotParseResult | null {
   if (!text) {
     return null;

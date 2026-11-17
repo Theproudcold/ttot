@@ -311,11 +311,6 @@ export function encodeEmbeddedSnapshot(snapshot: ProjectSnapshotV1): string {
   return `${EMBEDDED_SNAPSHOT_PREFIX}${toBase64(JSON.stringify(snapshot))}`;
 }
 
-/**
- * 从内嵌字符串解析配方。
- * 返回 null 表示「不是本工具的配方」（例如其他软件写入的 ImageDescription），
- * 此时调用方应继续走普通影像流程。
- */
 // ---------------------------------------------------------------------------
 // 还原前置校验
 // ---------------------------------------------------------------------------

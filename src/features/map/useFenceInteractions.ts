@@ -9,8 +9,12 @@ import type VectorSource from 'ol/source/Vector.js';
 import { altKeyOnly } from 'ol/events/condition.js';
 import { Circle as CircleStyle, Fill, Stroke, Style } from 'ol/style.js';
 
-import { getFenceSummary, isFenceInsideValidityMask } from '@/shared/geo/fence';
-import { clipFenceToBoundingBox, clipFenceToValidityMask } from '@/shared/geo/fence';
+import {
+  clipFenceToBoundingBox,
+  clipFenceToValidityMask,
+  getFenceSummary,
+  isFenceInsideValidityMask,
+} from '@/shared/geo/fence';
 import type { FenceFeature, FenceRings } from '@/shared/types/fence';
 import type { RasterMetadata, RasterValidityMask } from '@/shared/types/raster';
 
