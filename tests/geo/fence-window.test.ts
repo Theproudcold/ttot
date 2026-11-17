@@ -16,7 +16,7 @@ vi.mock('geotiff', () => ({
   fromArrayBuffer: fromArrayBufferMock,
 }));
 
-import { readFenceWindowWithCache, resetFenceWindowCache } from '@/shared/geo/fenceWindow';
+import { readFenceWindowWithCache, resetFenceWindowCache } from '@/shared/geo/fenceWindowCache';
 import { buildRasterSourceKey, resetRasterSessionCache } from '@/shared/geo/rasterIo';
 import type { FenceRings } from '@/shared/types/fence';
 

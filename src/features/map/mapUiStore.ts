@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 
-import { buildDefaultNdviClassificationLayer } from '@/shared/geo/raster';
+import {
+  buildDefaultNdviClassificationLayer,
+} from '@/shared/geo/rasterClassification';
 import type { GridRenderSettings } from '@/shared/types/grid';
 import type { RasterHoverInfo, RasterHoverInfoInput, RasterRenderSettings } from '@/shared/types/raster';
 import type { RasterClassificationLayer } from '@/shared/types/raster';

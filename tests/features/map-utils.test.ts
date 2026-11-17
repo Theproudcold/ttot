@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { canClassifySingleBand } from '@/features/map/mapUtils';
-import { countExtraSamples, resolveDataBandCount } from '@/shared/geo/raster';
+import {
+  countExtraSamples,
+  resolveDataBandCount,
+} from '@/shared/geo/rasterPreview';
 
 describe('countExtraSamples', () => {
   it('returns 0 when the tag is missing or the input is not a directory', () => {

@@ -1,12 +1,4 @@
-type SupportedRasterArray =
-  | Uint8Array
-  | Uint16Array
-  | Uint32Array
-  | Int8Array
-  | Int16Array
-  | Int32Array
-  | Float32Array
-  | Float64Array;
+import type { SupportedRasterArray } from '@/shared/types/raster';
 
 type GeoTiffWriteOptions = {
   width: number;

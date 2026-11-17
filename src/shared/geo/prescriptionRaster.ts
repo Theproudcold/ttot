@@ -1,13 +1,16 @@
 import type { MetricTransform } from '@/shared/geo/crs';
 import { createIdentityMetricTransform } from '@/shared/geo/crs';
-import { readFenceWindowWithCache } from '@/shared/geo/fenceWindow';
+import { readFenceWindowWithCache } from '@/shared/geo/fenceWindowCache';
 import { getFenceSummary, isPointInFence } from '@/shared/geo/fence';
 import {
   aggregateGridCellsFromRasterWindow,
   aggregateGridCellsFromRasterWindowAsync,
   applyGridAggregationToBands,
 } from '@/shared/geo/gridAggregation';
-import { buildRasterSourceKey, openRasterSession } from '@/shared/geo/raster';
+import {
+  buildRasterSourceKey,
+  openRasterSession,
+} from '@/shared/geo/rasterIo';
 import type { FencePosition, FenceRings } from '@/shared/types/fence';
 import type { GridAggregationMode, GridAggregationResult } from '@/shared/types/grid';
 import type {
@@ -16,9 +19,6 @@ import type {
   RasterResolution,
   SupportedRasterArray,
 } from '@/shared/types/raster';
-
-export { getPixelWindowFromFenceBoundingBox } from '@/shared/geo/rasterWindow';
-export type { PixelWindow, SupportedRasterArray } from '@/shared/types/raster';
 
 export type GeoTiffFenceWindowData = {
   window: PixelWindow;

@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMetricTransform } from '@/shared/geo/crs';
+import { getPixelWindowFromFenceBoundingBox } from '@/shared/geo/rasterWindow';
 import {
   applyGridAggregationToFenceWindowBands,
   applyGridNoDataMask,
   buildGridAggregationFromFenceWindow,
   buildGridAggregationFromFenceWindowAsync,
   buildGeoTiffExportMetadata,
-  getPixelWindowFromFenceBoundingBox,
   pickExportNoDataValue,
   readGeoTiffFenceWindow,
-} from '@/shared/geo/geotiffExport';
+} from '@/shared/geo/prescriptionRaster';
 
 const { fromArrayBufferMock } = vi.hoisted(() => ({
   fromArrayBufferMock: vi.fn(),

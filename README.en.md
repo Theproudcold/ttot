@@ -135,6 +135,12 @@ docs/                     # design notes, performance research, screenshots
 
 Layering: `app` owns layout and entry orchestration, `features` holds business state and flows, `shared/geo` is a UI-free computation layer, and `shared/workers` only contains offloadable pure tasks.
 
+One exception worth knowing before you edit: `shared/workers` is an assembly layer and is allowed to depend back on `features`.
+`rasterWorkerTasks.ts` calls into `features/export/exportGeoTiff.ts` and `features/project/readEmbeddedSnapshot.ts`, and
+`rasterWorkerRequests.ts` references types from `features/project/projectSnapshot.ts`.
+So `shared/geo` stays free of reverse dependencies, but `shared/workers` does not — changing the export path or the
+project-snapshot contract affects the Worker.
+
 ## Performance
 
 Numbers below are measured on a real scene (5647×3179) in a local Chromium build; the harness is in [tests/bench](tests/bench/grid-aggregation.test.ts):

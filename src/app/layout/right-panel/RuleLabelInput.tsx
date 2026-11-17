@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import { useDebounce } from '@/shared/hooks/useDebounce';
+import { useDebouncedValue } from '@/shared/hooks/useDebouncedValue';
 
 /**
  * 分类规则标签输入框。
@@ -16,7 +16,7 @@ export function RuleLabelInput({
   onChange: (index: number, field: 'label', value: string) => void;
 }) {
   const [localLabel, setLocalLabel] = useState(label);
-  const debouncedLabel = useDebounce(localLabel, 300);
+  const debouncedLabel = useDebouncedValue(localLabel, 300);
 
   useEffect(() => {
     setLocalLabel(label);

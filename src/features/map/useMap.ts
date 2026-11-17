@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 import Feature from 'ol/Feature.js';
-import { useDebounce } from '@/shared/hooks/useDebounce';
+import { useDebouncedValue } from '@/shared/hooks/useDebouncedValue';
 import Map from 'ol/Map.js';
 import type MapBrowserEvent from 'ol/MapBrowserEvent.js';
 import View from 'ol/View.js';
@@ -31,17 +31,21 @@ import {
 } from '@/features/map/debugLogger';
 import { ensureProjectionRegistered } from '@/shared/geo/crs';
 import { clipFenceToBoundingBox, clipFenceToValidityMask, getFenceSummary, isCoordinateInValidityMask, isFenceInsideValidityMask, isPointInFence } from '@/shared/geo/fence';
-import { buildGridAggregationFromFenceWindowAsync } from '@/shared/geo/geotiffExport';
-import { readFenceWindowWithCache } from '@/shared/geo/fenceWindow';
+import { buildGridAggregationFromFenceWindowAsync } from '@/shared/geo/prescriptionRaster';
+import { readFenceWindowWithCache } from '@/shared/geo/fenceWindowCache';
 import { buildGridPreview } from '@/shared/geo/grid';
 import { buildAggregateGridPayload } from '@/shared/workers/rasterWorkerRequests';
 import { registerRasterWorker, unregisterRasterWorker } from '@/shared/workers/rasterWorkerRegistry';
 import {
   buildRasterClassificationPreviewRgba,
-  buildRasterSourceKey,
-  createPreviewDataUrl,
   findRasterClassificationMatch,
-} from '@/shared/geo/raster';
+} from '@/shared/geo/rasterClassification';
+import {
+  buildRasterSourceKey,
+} from '@/shared/geo/rasterIo';
+import {
+  createPreviewDataUrl,
+} from '@/shared/geo/rasterPreview';
 import type { RasterMetadata, RasterWorkerRequest, RasterWorkerResponse } from '@/shared/types/raster';
 import type { FenceRings } from '@/shared/types/fence';
 import type { GridCell, GridRenderSettings } from '@/shared/types/grid';
@@ -164,8 +168,8 @@ export function useMap(metadata: RasterMetadata | null) {
   const previewJobIdRef = useRef(0);
   const aggregationJobIdRef = useRef(0);
 
-  const debouncedCellSize = useDebounce(cellSize, 200);
-  const debouncedRotation = useDebounce(rotation, 200);
+  const debouncedCellSize = useDebouncedValue(cellSize, 200);
+  const debouncedRotation = useDebouncedValue(rotation, 200);
 
   useEffect(() => {
     if (import.meta.env.VITEST) {
@@ -1208,18 +1212,3 @@ export function scheduleMapResizeFrame(
     }
   });
 }
-
-/**
- * 以下工具函数已迁移至 mapUtils.ts，此处重新导出以保持原有导入路径兼容。
- */
-export {
-  canClassifySingleBand,
-  createAnimationFrameValueScheduler,
-  getGridCellStyleColors,
-  getPixelPosition,
-  getPreviewSampleValues,
-  getPrimarySampleValue,
-  getVisibleClassificationLayer,
-  isBboxInside,
-} from './mapUtils';
-export type { DeferredMapResizeTarget } from './mapUtils';

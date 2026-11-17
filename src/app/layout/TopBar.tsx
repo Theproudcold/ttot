@@ -5,7 +5,7 @@ import {
   createGridGeoJson,
   downloadGeoJson,
 } from '@/features/export/exportGeoJson';
-import { downloadExportedGeoTiff, exportFenceGeoTiff } from '@/features/export/exportGeoTiff';
+import { downloadExportedGeoTiff, exportFenceGeoTiff } from '@/features/export/geoTiffExportJob';
 import { applyProjectSnapshot } from '@/features/project/applyProjectSnapshot';
 import { downloadProjectFile, readProjectFile } from '@/features/project/projectFile';
 import {

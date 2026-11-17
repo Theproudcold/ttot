@@ -133,6 +133,11 @@ docs/                     # 设计文档、性能调研与截图
 
 分层约定：`app` 负责布局与入口编排，`features` 承载业务状态与流程，`shared/geo` 是无 UI 依赖的计算层，`shared/workers` 只放可 offload 的纯任务。
 
+例外一条，改动时请注意：`shared/workers` 是组装层，允许反向依赖 `features` 中被 Worker 复用的纯逻辑 ——
+`rasterWorkerTasks.ts` 会调用 `features/export/exportGeoTiff.ts` 与 `features/project/readEmbeddedSnapshot.ts`，
+`rasterWorkerRequests.ts` 引用 `features/project/projectSnapshot.ts` 的类型。
+也就是说 `shared/geo` 保持无反向依赖，但 `shared/workers` 不是——修改 `features/export` 或 `features/project` 的快照契约会影响 Worker。
+
 ## 性能
 
 以下数字来自真实影像（5647×3179）与本机 Chromium 的实测，脚本见 [tests/bench](tests/bench/grid-aggregation.test.ts)：

@@ -5,12 +5,12 @@ import { MapView } from '@/features/map/MapView';
 import { useFenceStore } from '@/features/fence/fenceStore';
 import { useMapUiStore } from '@/features/map/mapUiStore';
 import { useRasterStore } from '@/features/map/rasterStore';
+import { scheduleMapResizeFrame } from '@/features/map/useMap';
 import {
   createAnimationFrameValueScheduler,
+  createGridCellHitTester,
   getGridCellStyleColors,
-  scheduleMapResizeFrame,
-} from '@/features/map/useMap';
-import { createGridCellHitTester } from '@/features/map/mapUtils';
+} from '@/features/map/mapUtils';
 import { createMetricTransform } from '@/shared/geo/crs';
 import type { GridCell, GridRenderSettings } from '@/shared/types/grid';
 import type { RasterClassificationLayer, RasterMetadata } from '@/shared/types/raster';

@@ -14,9 +14,9 @@ vi.mock('geotiff', () => ({
   fromArrayBuffer: fromArrayBufferMock,
 }));
 
-import { resetFenceWindowCache } from '@/shared/geo/fenceWindow';
+import { resetFenceWindowCache } from '@/shared/geo/fenceWindowCache';
 import { resetRasterSessionCache } from '@/shared/geo/rasterIo';
-import { buildGeoTiffExportBytes } from '@/features/export/exportGeoTiff';
+import { buildGeoTiffExportBytes } from '@/features/export/geoTiffExportJob';
 import { buildExportGeoTiffPayload } from '@/shared/workers/rasterWorkerRequests';
 import { handleRasterWorkerRequest } from '@/shared/workers/rasterWorkerTasks';
 import type { FenceRings } from '@/shared/types/fence';

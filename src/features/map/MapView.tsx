@@ -1,25 +1,13 @@
 import { useRasterStore } from '@/features/map/rasterStore';
 import { useFenceStore } from '@/features/fence/fenceStore';
 import { useMapUiStore } from '@/features/map/mapUiStore';
-import { buildRasterClassificationLegendData } from '@/shared/geo/raster';
+import {
+  buildRasterClassificationLegendData,
+} from '@/shared/geo/rasterClassification';
 
 import { useMap } from './useMap';
 import { useRasterLoader } from './useRasterLoader';
-import { canClassifySingleBand } from './mapUtils';
-
-function getVisibleClassificationLayer(
-  classificationLayers: ReturnType<typeof useMapUiStore.getState>['classificationLayers'],
-  visibleClassificationLayerId: string | null,
-) {
-  if (visibleClassificationLayerId) {
-    const preferredLayer = classificationLayers.find((layer) => layer.id === visibleClassificationLayerId);
-    if (preferredLayer?.visible) {
-      return preferredLayer;
-    }
-  }
-
-  return classificationLayers.find((layer) => layer.visible) ?? null;
-}
+import { canClassifySingleBand, getVisibleClassificationLayer } from './mapUtils';
 
 export function MapView() {
   useRasterLoader();

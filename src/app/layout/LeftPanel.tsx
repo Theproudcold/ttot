@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useDebounce } from '@/shared/hooks/useDebounce';
+import { useDebouncedValue } from '@/shared/hooks/useDebouncedValue';
 import { useDebouncedCallback } from '@/shared/hooks/useDebouncedCallback';
 
 import { useFenceStore } from '@/features/fence/fenceStore';
@@ -99,7 +99,7 @@ export function LeftPanel() {
   const latestCellSizeInputRef = useRef(String(cellSize));
   const cellSizeRef = useRef(cellSize);
   const [localRotation, setLocalRotation] = useState(String(rotation));
-  const debouncedRotation = useDebounce(localRotation, 300);
+  const debouncedRotation = useDebouncedValue(localRotation, 300);
   /** 只有用户改过输入才回写 store，避免用陈旧的防抖值覆盖外部还原 */
   const rotationEditedRef = useRef(false);
 

@@ -11,7 +11,7 @@ import {
   loadRasterMetadata,
   loadRasterPreview,
   loadRasterValidityMask,
-} from '@/shared/geo/raster';
+} from '@/shared/geo/rasterIo';
 import { createPreviewDataUrl } from '@/shared/geo/rasterPreview';
 import {
   createRasterWorkerJobId,

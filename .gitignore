@@ -1,5 +1,7 @@
 # 依赖与构建产物
 node_modules/
+# git worktree 里常用软链复用主检出的依赖，需一并忽略（上面的 node_modules/ 只匹配目录）
+node_modules
 dist/
 coverage/
 *.tsbuildinfo
