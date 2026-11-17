@@ -20,7 +20,7 @@ import {
   unregisterRasterWorker,
 } from '@/shared/workers/rasterWorkerRegistry';
 import { rebuildRasterMetadata } from '@/shared/workers/rasterWorkerRequests';
-import type { RasterPreview, RasterWorkerRequest, RasterWorkerResponse } from '@/shared/types/raster';
+import type { RasterPreview, RasterWorkerRequest } from '@/shared/types/raster';
 
 import { useRasterStore } from './rasterStore';
 
@@ -29,41 +29,6 @@ type RasterLoaderOptions = {
 };
 
 const MAX_PREVIEW_EDGE = 1024;
-
-function postWorkerRequest<T extends Exclude<RasterWorkerResponse['type'], 'error'>>
-(
-  worker: Worker,
-  request: RasterWorkerRequest,
-): Promise<Extract<RasterWorkerResponse, { type: T }>> {
-  return new Promise((resolve, reject) => {
-    const handleMessage = (event: MessageEvent<RasterWorkerResponse>) => {
-      const response = event.data;
-      if (response.id !== request.id) return;
-      clearTimeout(timeout);
-      worker.removeEventListener('message', handleMessage);
-      worker.removeEventListener('error', handleError);
-      if (response.type === 'error') {
-        reject(new Error(response.error));
-      } else {
-        resolve(response as Extract<RasterWorkerResponse, { type: T }>);
-      }
-    };
-    const handleError = (event: ErrorEvent) => {
-      clearTimeout(timeout);
-      worker.removeEventListener('message', handleMessage);
-      worker.removeEventListener('error', handleError);
-      reject(new Error(`Worker error: ${event.message}`));
-    };
-    worker.addEventListener('message', handleMessage);
-    worker.addEventListener('error', handleError);
-    const timeout = setTimeout(() => {
-      worker.removeEventListener('message', handleMessage);
-      worker.removeEventListener('error', handleError);
-      reject(new Error('Worker request timeout'));
-    }, 60000);
-    worker.postMessage(request);
-  });
-}
 
 export function useRasterLoader(options?: RasterLoaderOptions) {
   const enabled = options?.enabled ?? !import.meta.env.VITEST;
@@ -202,7 +167,7 @@ export function useRasterLoader(options?: RasterLoaderOptions) {
           maxEdge: MAX_PREVIEW_EDGE,
         },
       };
-      const response = await postWorkerRequest(worker, request);
+      const response = await requestRasterWorker<'load-preview'>(worker, request);
       if (response.type !== 'load-preview') {
         throw new Error('Unexpected worker response type');
       }
@@ -320,7 +285,7 @@ export function useRasterLoader(options?: RasterLoaderOptions) {
           sourceKey: buildRasterSourceKey(sourceFile),
         },
       };
-      const response = await postWorkerRequest(worker, request);
+      const response = await requestRasterWorker<'load-validity-mask'>(worker, request);
       if (response.type !== 'load-validity-mask') {
         throw new Error('Unexpected worker response type');
       }
