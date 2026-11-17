@@ -37,7 +37,6 @@ import { VegetationIndexPanel } from './right-panel/VegetationIndexPanel';
  */
 export function RightPanel() {
   const metadata = useRasterStore((state) => state.metadata);
-  const status = useRasterStore((state) => state.status);
   const layers = useMapUiStore((state) => state.layers);
   const setLayerVisibility = useMapUiStore((state) => state.setLayerVisibility);
   const fence = useFenceStore((state) => state.fence);

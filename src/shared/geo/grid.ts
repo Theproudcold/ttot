@@ -1,14 +1,13 @@
 import type { MetricTransform } from '@/shared/geo/crs';
 import { createIdentityMetricTransform } from '@/shared/geo/crs';
 import { getFenceSummary, isPointInFence } from '@/shared/geo/fence';
-import type { FencePosition, FenceRings } from '@/shared/types/fence';
+import type { FenceRings } from '@/shared/types/fence';
 import type { GridAggregationResult, GridCell, GridPreview } from '@/shared/types/grid';
 
 /**
  * 构建网格预览的可选参数。
- * 支持向后兼容的旧版多参数调用方式。
  */
-type GridPreviewOptions = {
+export type GridPreviewOptions = {
   metricTransform?: MetricTransform;
   aggregation?: GridAggregationResult;
   rotationDeg?: number;
@@ -38,35 +37,18 @@ function rotatePoint(
 }
 
 /**
- * 构建一个轴对齐的矩形多边形环（闭合）。
- */
-function buildCellPolygon(minX: number, minY: number, maxX: number, maxY: number): FenceRings {
-  return [
-    [
-      [minX, minY],
-      [maxX, minY],
-      [maxX, maxY],
-      [minX, maxY],
-      [minX, minY],
-    ],
-  ];
-}
-
-/**
  * 基于围栏多边形和网格参数生成网格预览。
  * 支持度量变换、旋转角度以及可选的聚合结果注入。
  */
 export function buildGridPreview(
   rings: FenceRings,
   cellSize: number,
-  thirdArg?: GridPreviewOptions | GridAggregationResult | MetricTransform,
-  fourthArg?: GridAggregationResult | MetricTransform,
+  options: GridPreviewOptions = {},
 ): GridPreview {
   if (cellSize <= 0) {
     throw new Error('cell size must be greater than 0');
   }
 
-  const options = resolveOptions(thirdArg, fourthArg);
   const aggregation = options.aggregation;
   const metricTransform = options.metricTransform ?? createIdentityMetricTransform(getFenceSummary(rings).bbox);
   const rotationDeg = options.rotationDeg ?? 0;
@@ -273,58 +255,3 @@ function getMetricBounds(rings: FenceRings, metricTransform: MetricTransform): [
   return [minX, minY, maxX, maxY];
 }
 
-/**
- * 解析向后兼容的多参数输入，统一返回 GridPreviewOptions。
- */
-function resolveOptions(
-  thirdArg?: GridPreviewOptions | GridAggregationResult | MetricTransform,
-  fourthArg?: GridAggregationResult | MetricTransform,
-): GridPreviewOptions {
-  if (thirdArg && typeof thirdArg === 'object' && !isGridAggregationResult(thirdArg) && !isMetricTransform(thirdArg)) {
-    return thirdArg as GridPreviewOptions;
-  }
-
-  return {
-    metricTransform: isMetricTransform(thirdArg) ? thirdArg : isMetricTransform(fourthArg) ? fourthArg : undefined,
-    aggregation: isGridAggregationResult(thirdArg) ? thirdArg : isGridAggregationResult(fourthArg) ? fourthArg : undefined,
-  };
-}
-
-/**
- * 从多参数输入中提取 MetricTransform，若未提供则生成恒等变换。
- */
-function resolveMetricTransform(
-  rings: FenceRings,
-  thirdArg?: GridPreviewOptions | GridAggregationResult | MetricTransform,
-  fourthArg?: GridAggregationResult | MetricTransform,
-): MetricTransform {
-  const options = resolveOptions(thirdArg, fourthArg);
-
-  if (options.metricTransform) {
-    return options.metricTransform;
-  }
-
-  if (isMetricTransform(thirdArg)) {
-    return thirdArg;
-  }
-
-  if (isMetricTransform(fourthArg)) {
-    return fourthArg;
-  }
-
-  return createIdentityMetricTransform(getFenceSummary(rings).bbox);
-}
-
-/**
- * 类型守卫：判断值是否为网格聚合结果。
- */
-function isGridAggregationResult(value: unknown): value is GridAggregationResult {
-  return Boolean(value && typeof value === 'object' && 'cellsById' in value);
-}
-
-/**
- * 类型守卫：判断值是否为度量变换对象。
- */
-function isMetricTransform(value: unknown): value is MetricTransform {
-  return Boolean(value && typeof value === 'object' && 'toMetric' in value && 'fromMetric' in value);
-}

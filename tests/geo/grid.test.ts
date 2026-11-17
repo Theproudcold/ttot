@@ -91,7 +91,7 @@ describe('buildGridPreview', () => {
       },
     };
 
-    const preview = buildGridPreview(RECTANGLE_FENCE, 5, aggregation);
+    const preview = buildGridPreview(RECTANGLE_FENCE, 5, { aggregation });
 
     expect(preview.cells[0]).toMatchObject({
       id: 'r0-c0',
@@ -107,7 +107,7 @@ describe('buildGridPreview', () => {
       boundingBox: [119.420001, 36.510001, 119.420901, 36.510601],
     });
 
-    const preview = buildGridPreview(GEOGRAPHIC_FENCE, 10, metricTransform);
+    const preview = buildGridPreview(GEOGRAPHIC_FENCE, 10, { metricTransform });
 
     expect(preview.summary.cellSize).toBe(10);
     expect(preview.summary.totalCells).toBe(63);
