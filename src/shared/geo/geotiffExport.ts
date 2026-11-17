@@ -1,14 +1,12 @@
 import type { MetricTransform } from '@/shared/geo/crs';
-import { createIdentityMetricTransform } from '@/shared/geo/crs';
 import { readFenceWindowWithCache } from '@/shared/geo/fenceWindow';
-import { getFenceSummary, isPointInFence } from '@/shared/geo/fence';
 import {
   aggregateGridCellsFromRasterWindow,
   aggregateGridCellsFromRasterWindowAsync,
   applyGridAggregationToBands,
 } from '@/shared/geo/gridAggregation';
 import { buildRasterSourceKey, openRasterSession } from '@/shared/geo/raster';
-import type { FencePosition, FenceRings } from '@/shared/types/fence';
+import type { FenceRings } from '@/shared/types/fence';
 import type { GridAggregationMode, GridAggregationResult } from '@/shared/types/grid';
 import type {
   PixelWindow,
@@ -44,50 +42,6 @@ function hasValueInBands(bands: SupportedRasterArray[], target: number): boolean
 
     return false;
   });
-}
-
-function getTypedArrayConstructor<T extends SupportedRasterArray>(
-  band: T,
-): new (length: number) => T {
-  return band.constructor as new (length: number) => T;
-}
-
-function getPixelCenter(
-  col: number,
-  row: number,
-  origin: RasterOrigin,
-  resolution: RasterResolution,
-): FencePosition {
-  const [originX, originY] = origin;
-  const [resolutionX, resolutionY] = resolution;
-
-  return [originX + (col + 0.5) * resolutionX, originY + (row + 0.5) * resolutionY];
-}
-
-/**
- * 解析度量变换对象，若未提供则基于围栏创建恒等变换。
- */
-function resolveMetricTransform(fenceRings: FenceRings, metricTransform?: MetricTransform): MetricTransform {
-  return metricTransform ?? createIdentityMetricTransform(getFenceSummary(fenceRings).bbox);
-}
-
-function getMetricBounds(fenceRings: FenceRings, metricTransform: MetricTransform): [number, number, number, number] {
-  let minX = Number.POSITIVE_INFINITY;
-  let minY = Number.POSITIVE_INFINITY;
-  let maxX = Number.NEGATIVE_INFINITY;
-  let maxY = Number.NEGATIVE_INFINITY;
-
-  for (const ring of fenceRings) {
-    for (const point of ring) {
-      const [x, y] = metricTransform.toMetric(point);
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x);
-      maxY = Math.max(maxY, y);
-    }
-  }
-
-  return [minX, minY, maxX, maxY];
 }
 
 function getNoDataCandidates(sampleFormat: number, bitsPerSample: number): number[] {
@@ -378,144 +332,6 @@ export function applyGridAggregationToFenceWindowBands(input: {
     bands: rewrittenBands,
     maskedPixelCount,
     noDataValue: outputNoDataValue,
-  };
-}
-
-export function applyGridNoDataMask<T extends SupportedRasterArray>(input: {
-  bands: T[];
-  window: PixelWindow;
-  width: number;
-  height: number;
-  origin: RasterOrigin;
-  resolution: RasterResolution;
-  fenceRings: FenceRings;
-  gridCellWidth: number;
-  gridCellHeight: number;
-  noDataValue: number;
-  metricTransform?: MetricTransform;
-}): { bands: T[]; maskedPixelCount: number } {
-  const {
-    bands,
-    window,
-    width,
-    height,
-    origin,
-    resolution,
-    fenceRings,
-    gridCellWidth,
-    gridCellHeight,
-    noDataValue,
-    metricTransform,
-  } = input;
-  const resolvedMetricTransform = resolveMetricTransform(fenceRings, metricTransform);
-  const [windowStartCol, windowStartRow] = window;
-  const [gridMinX, gridMinY, gridMaxX, gridMaxY] = getMetricBounds(fenceRings, resolvedMetricTransform);
-  const cols = Math.ceil((gridMaxX - gridMinX) / gridCellWidth);
-  const rows = Math.ceil((gridMaxY - gridMinY) / gridCellHeight);
-  const includedGridKeys = new Set<string>();
-
-  for (let row = 0; row < rows; row += 1) {
-    for (let col = 0; col < cols; col += 1) {
-      const cellMinX = gridMinX + col * gridCellWidth;
-      const cellMinY = gridMinY + row * gridCellHeight;
-      const cellMaxX = Math.min(cellMinX + gridCellWidth, gridMaxX);
-      const cellMaxY = Math.min(cellMinY + gridCellHeight, gridMaxY);
-      const center = resolvedMetricTransform.fromMetric([
-        (cellMinX + cellMaxX) / 2,
-        (cellMinY + cellMaxY) / 2,
-      ]);
-
-      if (isPointInFence(center, fenceRings)) {
-        includedGridKeys.add(`${row}:${col}`);
-      }
-    }
-  }
-
-  let maskedPixelCount = 0;
-
-  const maskedBands = bands.map((band) => {
-    const TypedArrayConstructor = getTypedArrayConstructor(band);
-    const clonedBand = new TypedArrayConstructor(band.length);
-    clonedBand.set(band);
-
-    for (let row = 0; row < height; row += 1) {
-      for (let col = 0; col < width; col += 1) {
-        const [centerX, centerY] = resolvedMetricTransform.toMetric(
-          getPixelCenter(windowStartCol + col, windowStartRow + row, origin, resolution),
-        );
-        const gridCol = Math.floor((centerX - gridMinX) / gridCellWidth);
-        const gridRow = Math.floor((centerY - gridMinY) / gridCellHeight);
-        const gridKey = `${gridRow}:${gridCol}`;
-
-        if (
-          gridCol < 0 ||
-          gridCol >= cols ||
-          gridRow < 0 ||
-          gridRow >= rows ||
-          !includedGridKeys.has(gridKey)
-        ) {
-          clonedBand[row * width + col] = noDataValue;
-        }
-      }
-    }
-
-    return clonedBand;
-  });
-
-  if (maskedBands[0]) {
-    for (let pixelIndex = 0; pixelIndex < maskedBands[0].length; pixelIndex += 1) {
-      if (maskedBands[0][pixelIndex] === noDataValue && bands[0]?.[pixelIndex] !== noDataValue) {
-        maskedPixelCount += 1;
-      }
-    }
-  }
-
-  return {
-    bands: maskedBands,
-    maskedPixelCount,
-  };
-}
-
-export function buildGeoTiffExportMetadata(input: {
-  width: number;
-  height: number;
-  origin: RasterOrigin;
-  resolution: RasterResolution;
-  bitsPerSample: number[];
-  sampleFormat: number[];
-  samplesPerPixel: number;
-  geoKeys: Record<string, number | string>;
-  noDataValue: number;
-  photometricInterpretation?: number;
-}): Record<string, number | string | number[]> {
-  const {
-    width,
-    height,
-    origin,
-    resolution,
-    bitsPerSample,
-    sampleFormat,
-    samplesPerPixel,
-    geoKeys,
-    noDataValue,
-    photometricInterpretation,
-  } = input;
-  const [originX, originY, originZ = 0] = origin;
-  const [resolutionX, resolutionY] = resolution;
-
-  return {
-    ImageWidth: width,
-    ImageLength: height,
-    SamplesPerPixel: samplesPerPixel,
-    BitsPerSample: bitsPerSample,
-    SampleFormat: sampleFormat,
-    PhotometricInterpretation:
-      photometricInterpretation ?? (samplesPerPixel === 3 ? 2 : 1),
-    PlanarConfiguration: 1,
-    ModelPixelScale: [Math.abs(resolutionX), Math.abs(resolutionY), 0],
-    ModelTiepoint: [0, 0, 0, originX, originY, originZ],
-    GDAL_NODATA: String(noDataValue),
-    ...geoKeys,
   };
 }
 

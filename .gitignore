@@ -1,4 +1,6 @@
 # 依赖与构建产物
+# node_modules 不带斜杠：worktree 里常用符号链接共享依赖，带斜杠的模式匹配不到链接
+node_modules
 node_modules/
 dist/
 coverage/
@@ -14,6 +16,7 @@ package-lock.json
 # 本地数据与工作副本
 data/
 .worktrees/
+.agents/
 
 # 工具与调试产物
 .ace-tool/

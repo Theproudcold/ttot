@@ -3,10 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMetricTransform } from '@/shared/geo/crs';
 import {
   applyGridAggregationToFenceWindowBands,
-  applyGridNoDataMask,
   buildGridAggregationFromFenceWindow,
   buildGridAggregationFromFenceWindowAsync,
-  buildGeoTiffExportMetadata,
   getPixelWindowFromFenceBoundingBox,
   pickExportNoDataValue,
   readGeoTiffFenceWindow,
@@ -309,84 +307,6 @@ describe('applyGridAggregationToFenceWindowBands', () => {  it('rewrites hit-cel
 
     expect(Array.from(result.bands[0])).toEqual([1, 3, 5, 7]);
     expect(result.maskedPixelCount).toBe(0);
-  });
-});
-
-describe('applyGridNoDataMask', () => {
-  it('writes NoData to pixels whose centers fall outside the selected grid cells', () => {
-    const band = new Float32Array([1, 2, 3, 4]);
-
-    const masked = applyGridNoDataMask({
-      bands: [band],
-      window: [0, 0, 2, 2],
-      width: 2,
-      height: 2,
-      origin: [0, 2, 0],
-      resolution: [1, -1, 0],
-      fenceRings: [
-        [
-          [0, 0],
-          [2, 0],
-          [2, 2],
-          [0, 2],
-          [0, 0],
-        ],
-        [
-          [0, 0],
-          [2, 0],
-          [2, 1],
-          [0, 1],
-          [0, 0],
-        ],
-        [
-          [1, 1],
-          [2, 1],
-          [2, 2],
-          [1, 2],
-          [1, 1],
-        ],
-      ],
-      gridCellWidth: 1,
-      gridCellHeight: 1,
-      noDataValue: -9999,
-    });
-
-    expect(Array.from(masked.bands[0])).toEqual([1, -9999, -9999, -9999]);
-    expect(masked.maskedPixelCount).toBe(3);
-    expect(masked.bands[0]).toBeInstanceOf(Float32Array);
-    expect(masked.bands[0]).not.toBe(band);
-  });
-});
-
-describe('buildGeoTiffExportMetadata', () => {
-  it('builds geotiff writer metadata from clipped raster properties', () => {
-    expect(
-      buildGeoTiffExportMetadata({
-        width: 3,
-        height: 2,
-        origin: [110, 180, 0],
-        resolution: [10, -10, 0],
-        bitsPerSample: [32],
-        sampleFormat: [3],
-        samplesPerPixel: 1,
-        geoKeys: {
-          GTModelTypeGeoKey: 1,
-          ProjectedCSTypeGeoKey: 4549,
-          GTCitationGeoKey: 'EPSG:4549',
-        },
-        noDataValue: -9999,
-      }),
-    ).toMatchObject({
-      ImageWidth: 3,
-      ImageLength: 2,
-      SamplesPerPixel: 1,
-      BitsPerSample: [32],
-      SampleFormat: [3],
-      ModelPixelScale: [10, 10, 0],
-      ModelTiepoint: [0, 0, 0, 110, 180, 0],
-      GDAL_NODATA: '-9999',
-      ProjectedCSTypeGeoKey: 4549,
-    });
   });
 });
 
