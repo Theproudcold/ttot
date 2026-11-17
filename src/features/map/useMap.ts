@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 
 import Feature from 'ol/Feature.js';
 import { useDebouncedValue } from '@/shared/hooks/useDebouncedValue';
+import { useFenceInteractions } from './useFenceInteractions';
 import Map from 'ol/Map.js';
 import type MapBrowserEvent from 'ol/MapBrowserEvent.js';
 import View from 'ol/View.js';
@@ -1027,157 +1028,20 @@ export function useMap(metadata: RasterMetadata | null) {
     };
   }, [debouncedCellSize, debouncedRotation, aggregationMode, fence, fenceMode, setPreview, sourceFile]);
 
-  useEffect(() => {
-    if (import.meta.env.VITEST || !mapRef.current || !fenceSourceRef.current) {
-      return;
-    }
-
-    removeInteractions();
-
-    const map = mapRef.current;
-    const source = fenceSourceRef.current;
-
-    const validateFence = (rings: FenceRings): string | null => {
-      if (!metadata) {
-        return '请先完成 GeoTIFF 读取。';
-      }
-
-      const summary = getFenceSummary(rings);
-      if (!isBboxInside(summary.bbox, metadata.boundingBox)) {
-        return '围栏必须落在影像范围内。';
-      }
-
-      if (validityMask && !isFenceInsideValidityMask(rings, validityMask)) {
-        return '围栏必须落在影像有效数据范围内';
-      }
-
-      return null;
-    };
-
-    if (fenceMode === 'draw') {
-      const draw = new Draw({
-        source,
-        type: 'Polygon',
-      });
-
-      draw.on('drawstart', () => {
-        source.clear();
-      });
-
-      draw.on('drawend', (event) => {
-        const geometry = event.feature.getGeometry();
-        if (!geometry || !(geometry instanceof Polygon)) {
-          return;
-        }
-
-        let rings = geometry.getCoordinates() as FenceRings;
-
-        if (metadata) {
-          const summary = getFenceSummary(rings);
-          if (!isBboxInside(summary.bbox, metadata.boundingBox)) {
-            rings = clipFenceToBoundingBox(rings, metadata.boundingBox);
-          }
-        }
-
-        if (validityMask && !isFenceInsideValidityMask(rings, validityMask)) {
-          rings = clipFenceToValidityMask(rings, validityMask);
-        }
-
-        const outerRing = rings[0] ?? [];
-        if (outerRing.length < 4) {
-          source.clear();
-          setValidationMessage('自动裁剪后围栏无效，请重新绘制。');
-          return;
-        }
-
-        const validationError = validateFence(rings);
-        if (validationError) {
-          source.clear();
-          setValidationMessage(validationError);
-          return;
-        }
-
-        setFence(rings);
-      });
-
-      map.addInteraction(draw);
-      drawRef.current = draw;
-      return;
-    }
-
-    if (fenceMode === 'edit' && source.getFeatures().length > 0) {
-      const modify = new Modify({
-        source,
-        deleteCondition: altKeyOnly,
-        style: new Style({
-          image: new CircleStyle({
-            radius: 6,
-            fill: new Fill({ color: '#3388ff' }),
-            stroke: new Stroke({ color: '#ffffff', width: 2 }),
-          }),
-          stroke: new Stroke({
-            color: '#3388ff',
-            width: 2,
-          }),
-          fill: new Fill({
-            color: 'rgba(51, 136, 255, 0.2)',
-          }),
-        }),
-      });
-      modify.on('modifyend', (event) => {
-        const geometry = event.features.item(0)?.getGeometry();
-        if (!geometry || !(geometry instanceof Polygon)) {
-          return;
-        }
-
-        let rings = geometry.getCoordinates() as FenceRings;
-
-        if (metadata) {
-          const summary = getFenceSummary(rings);
-          if (!isBboxInside(summary.bbox, metadata.boundingBox)) {
-            rings = clipFenceToBoundingBox(rings, metadata.boundingBox);
-          }
-        }
-
-        if (validityMask && !isFenceInsideValidityMask(rings, validityMask)) {
-          rings = clipFenceToValidityMask(rings, validityMask);
-        }
-
-        const outerRing = rings[0] ?? [];
-        if (outerRing.length < 4) {
-          source.clear();
-          if (fence) {
-            source.addFeature(
-              new Feature({
-                geometry: new Polygon(fence.geometry.coordinates),
-              }),
-            );
-          }
-          setValidationMessage('自动裁剪后围栏无效，请重新编辑。');
-          return;
-        }
-
-        const validationError = validateFence(rings);
-        if (validationError) {
-          source.clear();
-          if (fence) {
-            source.addFeature(
-              new Feature({
-                geometry: new Polygon(fence.geometry.coordinates),
-              }),
-            );
-          }
-          setValidationMessage(validationError);
-          return;
-        }
-
-        updateFence(rings);
-      });
-
-      map.addInteraction(modify);
-      modifyRef.current = modify;
-    }
-  }, [fence, fenceMode, metadata, setFence, updateFence, setValidationMessage, validityMask]);
+  useFenceInteractions({
+    mapRef,
+    fenceSourceRef,
+    drawRef,
+    modifyRef,
+    removeInteractions,
+    metadata,
+    validityMask,
+    fence,
+    fenceMode,
+    setFence,
+    updateFence,
+    setValidationMessage,
+  });
 
   return {
     mapElementRef,
