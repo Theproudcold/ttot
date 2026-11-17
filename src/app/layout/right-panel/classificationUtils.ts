@@ -119,7 +119,7 @@ export function formatClassificationMode(mode: RasterClassificationMode): string
 /**
  * 生成不重复的分类方案 ID。
  */
-export function createClassificationLayerId(existingIds: string[]): string {
+function createClassificationLayerId(existingIds: string[]): string {
   let index = 1;
   let nextId = `classification-rules-${index}`;
 
@@ -134,7 +134,7 @@ export function createClassificationLayerId(existingIds: string[]): string {
 /**
  * 生成不重复的分类方案标签名称。
  */
-export function createClassificationLayerLabel(existingLabels: string[]): string {
+function createClassificationLayerLabel(existingLabels: string[]): string {
   let index = 1;
   let nextLabel = `自定义方案 ${index}`;
 

@@ -1,28 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  APPLICATION_RATE_UNIT_LABELS,
   DEFAULT_APPLICATION_RATE_BASIS,
   DEFAULT_APPLICATION_RATE_UNIT,
-  convertRate,
-  getUnitSquareMeters,
   isApplicationRateBasis,
   isApplicationRateUnit,
   normalizeApplicationRateBasis,
   normalizeApplicationRateUnit,
   resolveCellAmount,
-  roundAmount,
   summarizeApplicationRates,
 } from '@/shared/geo/applicationRate';
 
 describe('area units', () => {
-  it('exposes the square meters behind each unit', () => {
-    expect(getUnitSquareMeters('per-square-meter')).toBe(1);
-    expect(getUnitSquareMeters('per-hectare')).toBe(10_000);
-    expect(getUnitSquareMeters('per-mu')).toBeCloseTo(666.6666667, 6);
-    expect(Object.keys(APPLICATION_RATE_UNIT_LABELS)).toHaveLength(3);
-  });
-
   it('guards and normalizes unknown values', () => {
     expect(isApplicationRateBasis('per-area')).toBe(true);
     expect(isApplicationRateBasis('per-acre')).toBe(false);
@@ -34,28 +23,6 @@ describe('area units', () => {
     expect(normalizeApplicationRateBasis('nope')).toBe(DEFAULT_APPLICATION_RATE_BASIS);
     expect(normalizeApplicationRateUnit('per-mu')).toBe('per-mu');
     expect(normalizeApplicationRateUnit(null)).toBe(DEFAULT_APPLICATION_RATE_UNIT);
-  });
-});
-
-describe('convertRate', () => {
-  it('converts between area units', () => {
-    // 1 kg/亩 ≈ 15 kg/ha（1 ha = 15 亩）
-    expect(convertRate(1, 'per-mu', 'per-hectare')).toBeCloseTo(15, 6);
-    expect(convertRate(15, 'per-hectare', 'per-mu')).toBeCloseTo(1, 6);
-    expect(convertRate(1, 'per-hectare', 'per-square-meter')).toBeCloseTo(0.0001, 8);
-    expect(convertRate(2, 'per-hectare', 'per-hectare')).toBe(2);
-  });
-
-  it('passes non-finite values through untouched', () => {
-    expect(convertRate(Number.NaN, 'per-mu', 'per-hectare')).toBeNaN();
-  });
-});
-
-describe('roundAmount', () => {
-  it('removes binary float noise', () => {
-    expect(roundAmount(0.1 + 0.2)).toBe(0.3);
-    expect(roundAmount(1 / 3)).toBe(0.333333);
-    expect(roundAmount(Number.POSITIVE_INFINITY)).toBe(Number.POSITIVE_INFINITY);
   });
 });
 

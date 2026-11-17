@@ -30,9 +30,9 @@ export type RasterBandSamples = {
   dataBandCount: number;
 };
 
-export const DEFAULT_BAND_SAMPLE_MAX_EDGE = 1024;
+const DEFAULT_BAND_SAMPLE_MAX_EDGE = 1024;
 /** 一次最多读取的波段数，避免异常文件把内存打满 */
-export const MAX_BAND_SAMPLES = 16;
+const MAX_BAND_SAMPLES = 16;
 
 function readMetadata(image: unknown, sampleIndex: number): Record<string, unknown> {
   const holder = image as { getGDALMetadata?: (sample?: number | null) => unknown };
