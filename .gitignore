@@ -2,6 +2,8 @@
 # node_modules 不带斜杠：worktree 里常用符号链接共享依赖，带斜杠的模式匹配不到链接
 node_modules
 node_modules/
+# git worktree 里常用软链复用主检出的依赖，需一并忽略（上面的 node_modules/ 只匹配目录）
+node_modules
 dist/
 coverage/
 *.tsbuildinfo

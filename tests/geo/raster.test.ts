@@ -15,19 +15,23 @@ import {
   buildDefaultNdviClassificationLayer,
   buildRasterClassificationLegendData,
   buildRasterClassificationPreviewRgba,
-  buildPreviewRgba,
-  buildRasterMetadata,
-  calculatePreviewDimensions,
-  calculateProgressPercent,
   findRasterClassificationMatch,
+} from '@/shared/geo/rasterClassification';
+import {
+  buildRasterMetadata,
+  calculateProgressPercent,
   getCrsCodeFromGeoKeys,
-  getSampleRanges,
   loadRasterMetadata,
   loadRasterPreview,
   loadRasterValidityMask,
   resetRasterSessionCache,
-} from '@/shared/geo/raster';
-import { readGeoTiffFenceWindow } from '@/shared/geo/geotiffExport';
+} from '@/shared/geo/rasterIo';
+import {
+  buildPreviewRgba,
+  calculatePreviewDimensions,
+  getSampleRanges,
+} from '@/shared/geo/rasterPreview';
+import { readGeoTiffFenceWindow } from '@/shared/geo/prescriptionRaster';
 
 beforeEach(() => {
   fromArrayBufferMock.mockReset();

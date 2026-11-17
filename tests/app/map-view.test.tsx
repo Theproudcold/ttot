@@ -8,8 +8,8 @@ import { useRasterStore } from '@/features/map/rasterStore';
 import {
   createAnimationFrameValueScheduler,
   getGridCellStyleColors,
-  scheduleMapResizeFrame,
-} from '@/features/map/useMap';
+} from '@/features/map/mapUtils';
+import { scheduleMapResizeFrame } from '@/features/map/useMap';
 import type { GridCell, GridRenderSettings } from '@/shared/types/grid';
 import type { RasterClassificationLayer } from '@/shared/types/raster';
 

@@ -1,7 +1,7 @@
 import { createMetricTransformFromDescriptor } from '@/shared/geo/crs';
-import { buildGeoTiffExportBytes } from '@/features/export/exportGeoTiff';
+import { buildGeoTiffExportBytes } from '@/features/export/geoTiffExportJob';
 import { readEmbeddedProjectSnapshotWithSession } from '@/features/project/readEmbeddedSnapshot';
-import { readFenceWindowWithCache } from '@/shared/geo/fenceWindow';
+import { readFenceWindowWithCache } from '@/shared/geo/fenceWindowCache';
 import { aggregateGridCellsFromRasterWindow } from '@/shared/geo/gridAggregation';
 import { buildRasterClassificationPreviewRgba } from '@/shared/geo/rasterClassification';
 import {

@@ -10,7 +10,8 @@ vi.mock('geotiff', () => ({
   fromArrayBuffer: fromArrayBufferMock,
 }));
 
-vi.mock('@/shared/geo/raster', () => ({
+vi.mock('@/shared/geo/rasterIo', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/shared/geo/rasterIo')>()),
   readBlobBuffer: readBlobBufferMock,
   buildRasterSourceKey: (file: Blob & { name?: string; lastModified?: number }) =>
     `${file.name ?? ''}:${file.size}:${file.lastModified ?? 0}`,
@@ -31,7 +32,7 @@ vi.mock('@/shared/geo/geotiffWriter', () => ({
   writeGeoTiffBufferAsync: writeGeoTiffBufferMock,
 }));
 
-import { exportFenceGeoTiff, downloadExportedGeoTiff } from '@/features/export/exportGeoTiff';
+import { exportFenceGeoTiff, downloadExportedGeoTiff } from '@/features/export/geoTiffExportJob';
 import {
   EMBEDDED_SNAPSHOT_PREFIX,
   encodeEmbeddedSnapshot,

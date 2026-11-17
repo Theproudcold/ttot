@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import { useDebounce } from '@/shared/hooks/useDebounce';
+import { useDebouncedValue } from '@/shared/hooks/useDebouncedValue';
 
 /**
  * 分类方案名称输入框。
@@ -16,7 +16,7 @@ export function ClassificationLayerNameInput({
   onChange: (id: string, updates: { label: string }) => void;
 }) {
   const [localLabel, setLocalLabel] = useState(label);
-  const debouncedLabel = useDebounce(localLabel, 300);
+  const debouncedLabel = useDebouncedValue(localLabel, 300);
 
   useEffect(() => {
     setLocalLabel(label);

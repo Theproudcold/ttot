@@ -18,7 +18,7 @@ vi.mock('geotiff', () => ({
 }));
 
 import { createMetricTransform } from '@/shared/geo/crs';
-import { resetFenceWindowCache } from '@/shared/geo/fenceWindow';
+import { resetFenceWindowCache } from '@/shared/geo/fenceWindowCache';
 import { aggregateGridCellsFromRasterWindow } from '@/shared/geo/gridAggregation';
 import { buildRasterSourceKey, resetRasterSessionCache } from '@/shared/geo/rasterIo';
 import { handleRasterWorkerRequest } from '@/shared/workers/rasterWorkerTasks';

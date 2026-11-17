@@ -123,15 +123,20 @@ docs/                     # 设计文档、性能调研与截图
 | 模块 | 职责 | 主要实现 |
 | --- | --- | --- |
 | 栅格接入 | 文件选择、元信息解析、预览与有效区域 | [rasterIo.ts](src/shared/geo/rasterIo.ts)、[useRasterLoader.ts](src/features/map/useRasterLoader.ts) |
-| 地图工作区 | 影像/围栏/网格渲染、视口适配、悬停反馈 | [useMap.ts](src/features/map/useMap.ts)、[mapUtils.ts](src/features/map/mapUtils.ts) |
+| 地图工作区 | 影像/围栏/网格渲染、视口适配、悬停反馈 | [useMap.ts](src/features/map/useMap.ts)、[useFenceInteractions.ts](src/features/map/useFenceInteractions.ts)、[mapUtils.ts](src/features/map/mapUtils.ts) |
 | 围栏 | 绘制、编辑、校验、裁剪与摘要 | [fence.ts](src/shared/geo/fence.ts) |
 | 网格与聚合 | 网格生成、旋转、像元聚合与 O(1) 命中 | [grid.ts](src/shared/geo/grid.ts)、[gridAggregation.ts](src/shared/geo/gridAggregation.ts) |
 | 分类与处方 | 规则/渐变着色、用量映射与统计 | [rasterClassification.ts](src/shared/geo/rasterClassification.ts)、[applicationRate.ts](src/shared/geo/applicationRate.ts) |
-| 导出 | 围栏/网格 GeoJSON、处方 GeoTIFF | [exportGeoTiff.ts](src/features/export/exportGeoTiff.ts)、[geotiffWriter.ts](src/shared/geo/geotiffWriter.ts) |
-| 工程快照 | 配方序列化、校验、还原与本地草稿 | [projectSnapshot.ts](src/features/project/projectSnapshot.ts)、[draftStorage.ts](src/features/project/draftStorage.ts) |
+| 导出 | 围栏/网格 GeoJSON、处方 GeoTIFF | [geoTiffExportJob.ts](src/features/export/geoTiffExportJob.ts)、[geotiffWriter.ts](src/shared/geo/geotiffWriter.ts) |
+| 工程快照 | 配方契约与序列化、校验、还原与本地草稿 | [projectSnapshot.ts](src/features/project/projectSnapshot.ts)（契约）、[projectSnapshotSchema.ts](src/features/project/projectSnapshotSchema.ts)（校验）、[draftStorage.ts](src/features/project/draftStorage.ts) |
 | 后台计算 | Worker 任务、窗口解码缓存、注册表 | [rasterWorkerTasks.ts](src/shared/workers/rasterWorkerTasks.ts) |
 
 分层约定：`app` 负责布局与入口编排，`features` 承载业务状态与流程，`shared/geo` 是无 UI 依赖的计算层，`shared/workers` 只放可 offload 的纯任务。
+
+例外一条，改动时请注意：`shared/workers` 是组装层，允许反向依赖 `features` 中被 Worker 复用的纯逻辑 ——
+`rasterWorkerTasks.ts` 会调用 `features/export/geoTiffExportJob.ts` 与 `features/project/readEmbeddedSnapshot.ts`，
+`rasterWorkerRequests.ts` 引用 `features/project/projectSnapshot.ts` 的类型。
+也就是说 `shared/geo` 保持无反向依赖，但 `shared/workers` 不是——修改 `features/export` 或 `features/project` 的快照契约会影响 Worker。
 
 ## 性能
 

@@ -3,25 +3,12 @@ import { createIdentityMetricTransform } from '@/shared/geo/crs';
 import { getFenceSummary, isPointInFence } from '@/shared/geo/fence';
 import type { FencePosition, FenceRings } from '@/shared/types/fence';
 import type { GridAggregationMode, GridAggregationResult, GridCellAggregation } from '@/shared/types/grid';
-import type { RasterOrigin, RasterResolution } from '@/shared/types/raster';
-
-/**
- * 支持的栅格数据数组类型。
- */
-type SupportedRasterArray =
-  | Uint8Array
-  | Uint16Array
-  | Uint32Array
-  | Int8Array
-  | Int16Array
-  | Int32Array
-  | Float32Array
-  | Float64Array;
-
-/**
- * 像素窗口：[起始列, 起始行, 宽度, 高度]。
- */
-type PixelWindow = [number, number, number, number];
+import type {
+  PixelWindow,
+  RasterOrigin,
+  RasterResolution,
+  SupportedRasterArray,
+} from '@/shared/types/raster';
 
 /**
  * 聚合输入参数。

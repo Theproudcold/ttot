@@ -11,7 +11,7 @@ const {
   loadRasterValidityMaskMock: vi.fn(),
 }));
 
-vi.mock('@/shared/geo/raster', () => ({
+vi.mock('@/shared/geo/rasterIo', () => ({
   loadRasterMetadata: loadRasterMetadataMock,
   loadRasterPreview: loadRasterPreviewMock,
   loadRasterValidityMask: loadRasterValidityMaskMock,

@@ -3,8 +3,8 @@ import {
   collectAggregationOutputValues,
   pickExportNoDataValue,
   readGeoTiffFenceWindow,
-  type SupportedRasterArray,
-} from '@/shared/geo/geotiffExport';
+} from '@/shared/geo/prescriptionRaster';
+import type { SupportedRasterArray } from '@/shared/types/raster';
 import { writeGeoTiffBufferAsync } from '@/shared/geo/geotiffWriter';
 import { countExtraSamples } from '@/shared/geo/rasterPreview';
 import { resolveCellAmount } from '@/shared/geo/applicationRate';

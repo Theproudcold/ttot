@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { TopBar } from '@/app/layout/TopBar';
-import { downloadExportedGeoTiff, exportFenceGeoTiff } from '@/features/export/exportGeoTiff';
+import { downloadExportedGeoTiff, exportFenceGeoTiff } from '@/features/export/geoTiffExportJob';
 import { useFenceStore } from '@/features/fence/fenceStore';
 import { useGridStore } from '@/features/grid/gridStore';
 import { useLoadingStore } from '@/features/loading/loadingStore';
@@ -23,7 +23,7 @@ vi.mock('@/features/export/exportGeoJson', async () => {
   };
 });
 
-vi.mock('@/features/export/exportGeoTiff', () => ({
+vi.mock('@/features/export/geoTiffExportJob', () => ({
   exportFenceGeoTiff: vi.fn(),
   downloadExportedGeoTiff: vi.fn(),
 }));

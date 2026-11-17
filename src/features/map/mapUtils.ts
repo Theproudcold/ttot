@@ -1,5 +1,5 @@
 import { useMapUiStore } from '@/features/map/mapUiStore';
-import { findRasterClassificationMatch } from '@/shared/geo/raster';
+import { findRasterClassificationMatch } from '@/shared/geo/rasterClassification';
 import { getFenceSummary } from '@/shared/geo/fence';
 import type { FenceRings } from '@/shared/types/fence';
 import type { GridCell, GridRenderSettings } from '@/shared/types/grid';
