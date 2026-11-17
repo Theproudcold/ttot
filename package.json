@@ -18,7 +18,8 @@
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check:unused": "tsc --noEmit --noUnusedLocals --noUnusedParameters -p tsconfig.app.json"
   },
   "dependencies": {
     "@turf/turf": "^7.2.0",

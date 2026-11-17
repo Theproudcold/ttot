@@ -103,7 +103,11 @@ M0 地基 ──┬─→ M1 状态可还原 ──→ M4 单文件往返 + 栅�
 | G5-2 | 英文 README + 截图 + 演示 GIF | 明确写出"栅格处方生成器"的差异化定位 |
 | G5-3 | i18n（zh / en） | 参考 NDVItoTaskmap 的 NL/EN 做法 |
 | G5-4 | 用户文档 | 与开发者 spec 分离的面向用户手册 |
-| G5-5 | 清理技术债 | `grid.ts` 的 `buildCellPolygon`/`resolveMetricTransform` 死代码、`LeftPanel` 与 `classificationUtils` 重复函数、`tests/tmp-displayvalue.test.tsx`、committed pnpm-store 符号链接 |
+| G5-5 | 清理技术债 | ✅ 已完成（2026-11-17，分支 `remove-historical-baggage`）。原清单四项全部处理：`grid.ts` 的 `buildCellPolygon` 与多参数兼容层（含 `resolveMetricTransform`）已删；`LeftPanel` 与 `classificationUtils` 的重复函数已收敛为单一实现；`tests/tmp-displayvalue.test.tsx` 已删；pnpm-store 符号链接本就未入库，`.gitignore` 已补 `.agents/`。另清出：孤儿模块 `rowDirection.ts`、被 `gridLookup` 取代的命中测试器、只写不读的 `rasterRenderSettings` 整条链路、只存在于当日中间态的草稿兼容读取、同值的规则边界双常量、分叉的 Worker 请求管线。CI 增加 `--noUnusedLocals` 守门。 |
+
+> 原 G5-5 的措辞有一处会误导执行者：它把 `grid.ts` 的 `resolveMetricTransform` 记为死代码，但
+> `gridAggregation.ts` 与 `geotiffExport.ts` 中**同名且仍在被调用**的两份拷贝必须保留。同名不同命，
+> 按文件名搜删除目标会误伤。本次已按调用图逐个核对后再删。
 
 ## 8. 建议执行顺序（单人）
 

@@ -32,5 +32,12 @@ jobs:
       - name: Typecheck and build
         run: pnpm build
 
+      # 未被引用的局部声明几乎总是重构后的残留（本地函数、失效导入）。
+      # 本仓库历史上多轮「先评审再重实现」留下了成片无人调用的代码，
+      # 这一步把它们挡在合入之前，而不是等下一次考古时才发现。
+      # 注意只对 src 生效：测试里常有故意的未用桩。
+      - name: Dead-code guard (noUnusedLocals)
+        run: pnpm check:unused
+
       - name: Test
         run: pnpm test
