@@ -21,7 +21,7 @@ import {
 } from './projectSnapshot';
 
 export const PROJECT_FILE_EXTENSION = '.ttot.json';
-export const PROJECT_FILE_MIME = 'application/json';
+const PROJECT_FILE_MIME = 'application/json';
 
 /** 工程文件名：以影像名为前缀，便于成对归档 */
 export function buildProjectFileName(sourceLabel: string | null | undefined): string {

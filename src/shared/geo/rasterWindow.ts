@@ -5,7 +5,7 @@ import type { PixelWindow, RasterOrigin, RasterResolution } from '@/shared/types
  * 影像在自身 CRS 下的外接范围。
  * 行列增长方向由 resolution 的符号决定，因此两端取 min/max 后再排序。
  */
-export function getRasterExtent(
+function getRasterExtent(
   rasterWidth: number,
   rasterHeight: number,
   origin: RasterOrigin,

@@ -15,7 +15,7 @@ import { validateProjectSnapshot } from './projectSnapshot';
 export const DRAFT_STORAGE_KEY = 'ttot:draft:v1';
 /** 超过该字节数直接放弃写入，避免触发配额异常 */
 export const DRAFT_MAX_BYTES = 1_000_000;
-export const DRAFT_DEBOUNCE_MS = 1000;
+const DRAFT_DEBOUNCE_MS = 1000;
 /** 最多保留的标签页草稿份数，超出时丢弃最旧的 */
 export const MAX_DRAFT_ENTRIES = 5;
 

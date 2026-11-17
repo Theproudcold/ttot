@@ -8,7 +8,6 @@ export {
   resetRasterSessionCache,
   getCrsCodeFromGeoKeys,
   buildRasterMetadata,
-  buildValidityMask,
   loadRasterMetadata,
   loadRasterPreview,
   loadRasterValidityMask,
