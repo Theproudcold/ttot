@@ -125,18 +125,18 @@ docs/                     # design notes, performance research, screenshots
 | Module | Responsibility | Key files |
 | --- | --- | --- |
 | Raster intake | File selection, metadata, preview, valid-data mask | [rasterIo.ts](src/shared/geo/rasterIo.ts), [useRasterLoader.ts](src/features/map/useRasterLoader.ts) |
-| Map workspace | Scene/fence/grid rendering, view fitting, hover feedback | [useMap.ts](src/features/map/useMap.ts), [mapUtils.ts](src/features/map/mapUtils.ts) |
+| Map workspace | Scene/fence/grid rendering, view fitting, hover feedback | [useMap.ts](src/features/map/useMap.ts), [useFenceInteractions.ts](src/features/map/useFenceInteractions.ts), [mapUtils.ts](src/features/map/mapUtils.ts) |
 | Fence | Drawing, editing, validation, clipping, summary | [fence.ts](src/shared/geo/fence.ts) |
 | Grid and aggregation | Grid generation, rotation, pixel aggregation, O(1) hit lookup | [grid.ts](src/shared/geo/grid.ts), [gridAggregation.ts](src/shared/geo/gridAggregation.ts) |
 | Classification and prescriptions | Rule/gradient colouring, rate mapping, statistics | [rasterClassification.ts](src/shared/geo/rasterClassification.ts), [applicationRate.ts](src/shared/geo/applicationRate.ts) |
-| Export | Fence/grid GeoJSON, prescription GeoTIFF | [exportGeoTiff.ts](src/features/export/exportGeoTiff.ts), [geotiffWriter.ts](src/shared/geo/geotiffWriter.ts) |
-| Project snapshots | Serialising, validating and restoring recipes, plus local drafts | [projectSnapshot.ts](src/features/project/projectSnapshot.ts), [draftStorage.ts](src/features/project/draftStorage.ts) |
+| Export | Fence/grid GeoJSON, prescription GeoTIFF | [geoTiffExportJob.ts](src/features/export/geoTiffExportJob.ts), [geotiffWriter.ts](src/shared/geo/geotiffWriter.ts) |
+| Project snapshots | Recipe contract/serialisation, validation, restore, local drafts | [projectSnapshot.ts](src/features/project/projectSnapshot.ts) (contract), [projectSnapshotSchema.ts](src/features/project/projectSnapshotSchema.ts) (validation), [draftStorage.ts](src/features/project/draftStorage.ts) |
 | Background compute | Worker tasks, window decode cache, registry | [rasterWorkerTasks.ts](src/shared/workers/rasterWorkerTasks.ts) |
 
 Layering: `app` owns layout and entry orchestration, `features` holds business state and flows, `shared/geo` is a UI-free computation layer, and `shared/workers` only contains offloadable pure tasks.
 
 One exception worth knowing before you edit: `shared/workers` is an assembly layer and is allowed to depend back on `features`.
-`rasterWorkerTasks.ts` calls into `features/export/exportGeoTiff.ts` and `features/project/readEmbeddedSnapshot.ts`, and
+`rasterWorkerTasks.ts` calls into `features/export/geoTiffExportJob.ts` and `features/project/readEmbeddedSnapshot.ts`, and
 `rasterWorkerRequests.ts` references types from `features/project/projectSnapshot.ts`.
 So `shared/geo` stays free of reverse dependencies, but `shared/workers` does not — changing the export path or the
 project-snapshot contract affects the Worker.
